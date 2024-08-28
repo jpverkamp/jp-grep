@@ -9,6 +9,7 @@ enum Regex {
     Range(char, char),
     Sequence(Vec<Regex>),
     Choice(Vec<Regex>),
+    CapturingGroup(Box<Regex>),
     OneOrMore(Box<Regex>),
     ZeroOrMore(Box<Regex>),
     ZeroOrOne(Box<Regex>),
@@ -16,6 +17,7 @@ enum Regex {
     Start,
     End,
     ChoicePlaceholder,
+    Backref(usize),
 }
 
 impl From<String> for Regex {
@@ -45,6 +47,12 @@ impl From<String> for Regex {
                                 Regex::Range('0', '9'),
                                 Regex::Char('_'),
                             ]),
+
+                            // Backreference
+                            Some(&c) if c.is_digit(10) => {
+                                let index = c.to_digit(10).unwrap() as usize;
+                                Regex::Backref(index)
+                            },
 
                             // Escaped control characters
                             Some(&c) if "\\()[]|".contains(c) => Regex::Char(c),
@@ -90,7 +98,11 @@ impl From<String> for Regex {
                     '(' => {
                         let (group, remaining) = read_until(input, Some(')'));
                         input = remaining;
-                        group
+                        Regex::CapturingGroup(Box::new(group))
+                    },
+                    ')' => {
+                        // This should have been consumed by the parent group
+                        unreachable!("Unmatched ')'");
                     },
 
                     // Anchors
@@ -164,8 +176,12 @@ impl Regex {
         // Pattern can apply at any starting point
         for i in 0..chars.len() {
             log::debug!("matches({:?}) against {:?}, start={}", chars[i..].iter().collect::<String>(), &self, i == 0);
-            
-            let (matched, _) = self.match_recur(&chars[i..], i == 0);
+
+            let mut groups = vec![];
+            let (matched, _) = self.match_recur(&chars[i..], i == 0, &mut groups);
+
+            dbg!(&groups);
+
             if matched {
                 return true;
             }
@@ -182,17 +198,19 @@ impl Regex {
             Regex::Range(_, _) => false,
             Regex::Sequence(seq) => seq.iter().all(|node| node.allow_none()),
             Regex::Choice(seq) => seq.iter().any(|node| node.allow_none()),
+            Regex::CapturingGroup(node) => node.allow_none(),
             Regex::Not(node) => node.allow_none(),
             Regex::Start => true,
             Regex::End => true,
             Regex::OneOrMore(node) => node.allow_none(),
             Regex::ZeroOrMore(_) => true,
             Regex::ZeroOrOne(_) => true,
+            Regex::Backref(_) => true, // The capture group may be empty
             Regex::ChoicePlaceholder => unreachable!("ChoicePlaceholder should have been expanded"),
         }
     }
 
-    fn match_recur<'a>(&self, input: &'a [char], at_start: bool) -> (bool, &'a [char]) {
+    fn match_recur<'a>(&self, input: &'a [char], at_start: bool, groups: &mut Vec<Option<&'a [char]>>) -> (bool, &'a [char]) {
         log::debug!("match_recur({self:?}, {}, {at_start})", input.iter().collect::<String>());
 
         if input.len() == 0 {
@@ -221,7 +239,7 @@ impl Regex {
 
             // A negative match of any other matcher
             Regex::Not(node) => {
-                let (matched, new_remaining) = node.match_recur(input, at_start);
+                let (matched, new_remaining) = node.match_recur(input, at_start, groups);
                 if !matched {
                     return (true, new_remaining);
                 }
@@ -242,7 +260,7 @@ impl Regex {
                 let mut matched = false;
                 let mut recur_at_start = at_start;
 
-                while let (true, new_remaining) = node.match_recur(remaining, recur_at_start) {
+                while let (true, new_remaining) = node.match_recur(remaining, recur_at_start, groups) {
                     matched = true;
                     remaining = new_remaining;
                     recur_at_start = false;
@@ -254,7 +272,7 @@ impl Regex {
                 let mut remaining = input;
                 let mut recur_at_start = at_start;
 
-                while let (true, new_remaining) = node.match_recur(remaining, recur_at_start) {
+                while let (true, new_remaining) = node.match_recur(remaining, recur_at_start, groups) {
                     remaining = new_remaining;
                     recur_at_start = false;
                 }
@@ -262,7 +280,7 @@ impl Regex {
                 return (true, remaining);
             },
             Regex::ZeroOrOne(node) => {
-                let (_, new_remaining) = node.match_recur(input, at_start);
+                let (_, new_remaining) = node.match_recur(input, at_start, groups);
                 return (true, new_remaining);
             },
 
@@ -273,7 +291,7 @@ impl Regex {
                 let mut seq_at_start = at_start;
 
                 for node in seq {
-                    let (matched, new_remaining) = node.match_recur(remaining, seq_at_start);
+                    let (matched, new_remaining) = node.match_recur(remaining, seq_at_start, groups);
                     if !matched {
                         return (false, input);
                     }
@@ -289,12 +307,44 @@ impl Regex {
             // If none match, abort the entire choice and advance to try again
             Regex::Choice(seq) => {
                 for node in seq {
-                    let (matched, new_remaining) = node.match_recur(input, at_start);
+                    let (matched, new_remaining) = node.match_recur(input, at_start, groups);
                     if matched {
                         return (true, new_remaining);
                     }
                 }
 
+                return (false, input);
+            },
+
+            // Capturing groups wrap another node and then store what was captured
+            Regex::CapturingGroup(node) => {
+                // Add a placeholder to get order correct
+                let index = groups.len();
+                groups.push(None);
+
+                let (matched, new_remaining) = node.match_recur(input, at_start, groups);
+                if matched {
+                    groups[index] = Some(&input[..(input.len() - new_remaining.len())]);
+                    return (true, new_remaining);
+                }
+
+                groups.remove(index);
+                return (false, input);
+            },
+
+            // Backreferences
+            Regex::Backref(index) => {
+                let index = index - 1; // 1-indexed
+
+                // If we haven't captured that group, this is a problem
+                if groups.len() <= index || groups[index].is_none() {
+                    unimplemented!("Backreference to group {} that hasn't been captured", index);
+                }
+
+                let captured = groups[index].unwrap();
+                if input.starts_with(captured) {
+                    return (true, &input[captured.len()..]);
+                }
                 return (false, input);
             },
 
@@ -427,4 +477,9 @@ mod tests {
     test_regex!(multiple_groups, "(a|b)(c|d)", "ac", true);
     test_regex!(multiple_groups2, "(a|b)(c|d)", "bd", true);
     test_regex!(multiple_groups3, "(a|b)(c|d)", "ca", false);
+
+    test_regex!(backref, r"(a)\1", "aa", true);
+    test_regex!(backref_not, r"(a)\1", "ab", false);
+    test_regex!(backref_double, r"(a)\1\1", "aaa", true);
+    test_regex!(backref_multiple, r"(a)(b)\2\1", "abba", true);
 }
