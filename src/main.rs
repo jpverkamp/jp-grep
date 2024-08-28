@@ -61,6 +61,10 @@ impl From<String> for Regex {
                     }
                 },
 
+                // Anchors, use 'start of text' and 'end of text' characters
+                '^' => Regex::Char(1 as char),
+                '$' => Regex::Char(2 as char),
+
                 // Single characters
                 c => Regex::Char(c),
             };
@@ -74,10 +78,21 @@ impl From<String> for Regex {
 
 impl Regex {
     pub fn matches(&self, input: &str) -> bool {
-        // TODO: Do we care about remaining input at this level?
-        let chars = input.chars().collect::<Vec<_>>();
-        let (matched, _) = self.match_recur(&chars);
-        matched
+        // Convert to char vec with \1 first and \2 last for start and end of text
+        let chars = vec![1 as char].into_iter()
+            .chain(input.chars())
+            .chain(vec![2 as char].into_iter())
+            .collect::<Vec<_>>();
+
+        // Pattern can apply at any starting point
+        for i in 0..chars.len() {
+            let (matched, _) = self.match_recur(&chars[i..], true);
+            if matched {
+                return true;
+            }
+        }
+
+        false
     }
 
     fn allow_none(&self) -> bool {
@@ -91,7 +106,9 @@ impl Regex {
         }
     }
 
-    fn match_recur<'a>(&self, input: &'a [char]) -> (bool, &'a [char]) {
+    fn match_recur<'a>(&self, input: &'a [char], at_start: bool) -> (bool, &'a [char]) {
+        log::debug!("match_recur({self:?}, {}, {at_start})", input.iter().collect::<String>());
+
         if input.len() == 0 {
             return (self.allow_none(), input);
         }
@@ -102,38 +119,38 @@ impl Regex {
                 if input[0] == *c {
                     return (true, &input[1..]);
                 }
-
-                return self.match_recur(&input[1..]);
+                return (false, input);
             },
             Regex::Range(start, end) => {
                 if input[0] >= *start && input[0] <= *end {
                     return (true, &input[1..]);
                 }
-
-                return self.match_recur(&input[1..]);
+                return (false, input);
             },
 
             // A negative match of any other matcher
             Regex::Not(node) => {
-                let (matched, new_remaining) = node.match_recur(input);
+                let (matched, new_remaining) = node.match_recur(input, at_start);
                 if !matched {
                     return (true, new_remaining);
                 }
-
-                return self.match_recur(&input[1..]);
+                return (false, input);
             },
 
             // A sequence of matches, all of which must match
             // If any fails, abort the entire sequence and advance to try again
             Regex::Sequence(seq) => {
                 let mut remaining = input;
+                let mut seq_at_start = at_start;
+
                 for node in seq {
-                    let (matched, new_remaining) = node.match_recur(remaining);
+                    let (matched, new_remaining) = node.match_recur(remaining, seq_at_start);
                     if !matched {
-                        return self.match_recur(&input[1..]);
+                        return self.match_recur(&input[1..], at_start);
                     }
 
                     remaining = new_remaining;
+                    seq_at_start = false;
                 }
 
                 return (true, remaining);
@@ -143,13 +160,13 @@ impl Regex {
             // If none match, abort the entire choice and advance to try again
             Regex::Choice(seq) => {
                 for node in seq {
-                    let (matched, new_remaining) = node.match_recur(input);
+                    let (matched, new_remaining) = node.match_recur(input, at_start);
                     if matched {
                         return (true, new_remaining);
                     }
                 }
 
-                return self.match_recur(&input[1..]);
+                return (false, input);
             },
 
         }
@@ -166,6 +183,8 @@ struct Args {
 }
 
 fn main() {
+    env_logger::init();
+
     let args = Args::parse();
     let regex = Regex::from(args.extended_regexp);
 
@@ -226,6 +245,8 @@ mod tests {
     test_regex!(sequence_not3, r"\w\d", " ", false);
     test_regex!(sequence_not4, r"\w\d", "\n", false);
 
+    test_regex!(sequence_hole, r"ab", "acb", false);
+
     test_regex!(choice, r"[abc]", "a", true);
     test_regex!(choice2, r"[abc]", "b", true);
     test_regex!(choice3, r"[abc]", "c", true);
@@ -234,9 +255,16 @@ mod tests {
     test_regex!(choice_multi_not, r"[abc]", "defgh", false);
 
     test_regex!(choice_negated, r"[^abc]", "d", true);
-    test_regex!(choice_negated2, r"[^abc]", "a", false);
+    test_regex!(choice_negated2, r"[^abc]", "a", true);
     test_regex!(choice_negated_long, r"[^abc]", "defaghi", true); // Any character can be not abc
-    test_regex!(choice_negated_long2, r"[^abc]", "abcabc", false);
+    test_regex!(choice_negated_long2, r"[^abc]", "abcabc", true);
 
     test_regex!(escaped_backslash, r"\\", "\\", true);
+
+    test_regex!(anchor_start, "^a", "a", true);
+    test_regex!(anchor_start2, "^a", "ba", false);
+    test_regex!(anchor_start3, "^a", "ab", true);
+    test_regex!(anchor_end, "a$", "a", true);
+    test_regex!(anchor_end2, "a$", "ba", true);
+    test_regex!(anchor_end3, "a$", "ab", false);
 }
