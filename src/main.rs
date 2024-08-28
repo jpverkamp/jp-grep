@@ -10,6 +10,7 @@ enum Regex {
     Choice(Vec<Regex>),
     OneOrMore(Box<Regex>),
     ZeroOrMore(Box<Regex>),
+    ZeroOrOne(Box<Regex>),
     Not(Box<Regex>),
     Start,
     End,
@@ -83,6 +84,10 @@ impl From<String> for Regex {
                     chars.next();
                     Regex::ZeroOrMore(Box::new(node))
                 },
+                Some('?') => {
+                    chars.next();
+                    Regex::ZeroOrOne(Box::new(node))
+                },
                 _ => node,
             };
 
@@ -123,6 +128,7 @@ impl Regex {
             Regex::End => true,
             Regex::OneOrMore(node) => node.allow_none(),
             Regex::ZeroOrMore(_) => true,
+            Regex::ZeroOrOne(_) => true,
         }
     }
 
@@ -189,6 +195,10 @@ impl Regex {
                 }
 
                 return (true, remaining);
+            },
+            Regex::ZeroOrOne(node) => {
+                let (_, new_remaining) = node.match_recur(input, at_start);
+                return (true, new_remaining);
             },
 
             // A sequence of matches, all of which must match
@@ -332,4 +342,8 @@ mod tests {
     test_regex!(zero_or_more, "a*", "a", true);
     test_regex!(zero_or_more2, "a*", "aa", true);
     test_regex!(zero_or_more3, "a*", "bbb", true);
+
+    test_regex!(zero_or_one, "a?", "a", true);
+    test_regex!(zero_or_one2, "a?", "aa", true);
+    test_regex!(zero_or_one3, "a?", "bbb", true);
 }
