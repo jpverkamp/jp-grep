@@ -1,6 +1,15 @@
-use std::env;
-use std::io;
-use std::process;
+use std::io::BufRead;
+
+use clap::Parser;
+
+/// A custom grep implementation
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// The expression to parse
+    #[arg(short = 'E', long)]
+    extended_regexp: String,
+}
 
 fn match_pattern(input_line: &str, pattern: &str) -> bool {
     if pattern.chars().count() == 1 {
@@ -10,25 +19,23 @@ fn match_pattern(input_line: &str, pattern: &str) -> bool {
     }
 }
 
-// Usage: echo <input_text> | your_program.sh -E <pattern>
 fn main() {
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
-    println!("Logs from your program will appear here!");
+    let args = Args::parse();
 
-    if env::args().nth(1).unwrap() != "-E" {
-        println!("Expected first argument to be '-E'");
-        process::exit(1);
+    let stdin = std::io::stdin();
+    let mut matches = 0;
+
+    for line in stdin.lock().lines() {
+        let input_line = line.unwrap();
+        if match_pattern(&input_line, &args.extended_regexp) {
+            matches += 1;
+            println!("{}", input_line);
+        }
     }
 
-    let pattern = env::args().nth(2).unwrap();
-    let mut input_line = String::new();
-
-    io::stdin().read_line(&mut input_line).unwrap();
-
-    // Uncomment this block to pass the first stage
-    // if match_pattern(&input_line, &pattern) {
-    //     process::exit(0)
-    // } else {
-    //     process::exit(1)
-    // }
+    if matches > 0 {
+        std::process::exit(0);
+    } else {
+        std::process::exit(1);
+    }
 }
