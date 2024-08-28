@@ -7,6 +7,7 @@ enum Regex {
     Sequence(Vec<Regex>),
     LiteralChar(char),
     AnyDigit,
+    AnyWord,
 }
 
 impl From<String> for Regex {
@@ -19,6 +20,7 @@ impl From<String> for Regex {
                 '\\' => {
                     match chars.next() {
                         Some('d') => Regex::AnyDigit,
+                        Some('w') => Regex::AnyWord,
                         _ => unimplemented!()
                     }
                 },
@@ -33,9 +35,10 @@ impl From<String> for Regex {
 }
 
 impl Regex {
-    pub fn matches(&self, input: &[char]) -> bool {
+    pub fn matches(&self, input: &str) -> bool {
         // TODO: Do we care about remaining input at this level?
-        let (matched, _) = self.match_recur(input);
+        let chars = input.chars().collect::<Vec<_>>();
+        let (matched, _) = self.match_recur(&chars);
         matched
     }
 
@@ -56,6 +59,13 @@ impl Regex {
             },
             Regex::AnyDigit => {
                 if input[0].is_digit(10) {
+                    return (true, &input[1..]);
+                }
+
+                return self.match_recur(&input[1..]);
+            },
+            Regex::AnyWord => {
+                if input[0].is_alphanumeric() {
                     return (true, &input[1..]);
                 }
 
@@ -99,14 +109,63 @@ fn main() {
 
     for line in stdin.lock().lines() {
         let input_line = line.unwrap();
-        let input_chars = input_line.chars().collect::<Vec<_>>();
         
         // TODO: Do we care about output? 
-        if regex.matches(&input_chars) {
+        if regex.matches(&input_line) {
             matches += 1;
             println!("{}", input_line);
         }
     }
 
     std::process::exit(if matches > 0 { 0 } else { 1 });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_literal_char() {
+        let regex = Regex::from("a".to_string());
+        assert!(regex.matches("a"));
+        assert!(!regex.matches("b"));
+        assert!(regex.matches("ab"));
+        assert!(regex.matches("ba"));
+    }
+
+    #[test]
+    fn test_any_digit() {
+        let regex = Regex::from(r"\d".to_string());
+        assert!(regex.matches("1"));
+        assert!(regex.matches("2"));
+        assert!(regex.matches("3"));
+        assert!(!regex.matches("a"));
+        assert!(!regex.matches("b"));
+        assert!(!regex.matches("c"));
+    }
+
+    #[test]
+    fn test_any_word() {
+        let regex = Regex::from(r"\w".to_string());
+        assert!(regex.matches("a"));
+        assert!(regex.matches("b"));
+        assert!(regex.matches("c"));
+        assert!(regex.matches("1"));
+        assert!(regex.matches("2"));
+        assert!(regex.matches("3"));
+        assert!(!regex.matches(" "));
+        assert!(!regex.matches("\n"));
+    }
+
+    #[test]
+    fn test_sequence() {
+        let regex = Regex::from(r"\w\d".to_string());
+        assert!(regex.matches("a1"));
+        assert!(regex.matches("b2"));
+        assert!(regex.matches("c3"));
+        assert!(!regex.matches("a"));
+        assert!(!regex.matches("1"));
+        assert!(!regex.matches(" "));
+        assert!(!regex.matches("\n"));
+    }
 }
