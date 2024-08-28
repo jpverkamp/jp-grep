@@ -4,20 +4,30 @@ use clap::Parser;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Regex {
-    Any,
-    Char(char),
-    Range(char, char),
+    Char(CharType),
     Sequence(Vec<Regex>),
     Choice(Vec<Regex>),
     CapturingGroup(Box<Regex>),
-    OneOrMore(Box<Regex>),
-    ZeroOrMore(Box<Regex>),
-    ZeroOrOne(Box<Regex>),
+    Repeated(RepeatType, Box<Regex>),
     Not(Box<Regex>),
     Start,
     End,
     ChoicePlaceholder,
     Backref(usize),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CharType {
+    Any,
+    Single(char),
+    Range(char, char),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RepeatType {
+    OneOrMore,
+    ZeroOrMore,
+    ZeroOrOne,
 }
 
 impl From<String> for Regex {
@@ -40,12 +50,12 @@ impl From<String> for Regex {
                     // Predefined character groups
                     '\\' => {
                         let group = match input.first() {
-                            Some('d') => Regex::Range('0', '9'),
+                            Some('d') => Regex::Char(CharType::Range('0', '9')),
                             Some('w') => Regex::Choice(vec![
-                                Regex::Range('a', 'z'),
-                                Regex::Range('A', 'Z'),
-                                Regex::Range('0', '9'),
-                                Regex::Char('_'),
+                                Regex::Char(CharType::Range('a', 'z')),
+                                Regex::Char(CharType::Range('A', 'Z')),
+                                Regex::Char(CharType::Range('0', '9')),
+                                Regex::Char(CharType::Single('_')),
                             ]),
 
                             // Backreference
@@ -55,7 +65,7 @@ impl From<String> for Regex {
                             },
 
                             // Escaped control characters
-                            Some(&c) if "\\()[]|".contains(c) => Regex::Char(c),
+                            Some(&c) if "\\()[]|".contains(c) => Regex::Char(CharType::Single(c)),
 
                             // A group we don't know about
                             _ => unimplemented!()
@@ -84,7 +94,7 @@ impl From<String> for Regex {
                                 break;
                             }
 
-                            choices.push(Regex::Char(c));
+                            choices.push(Regex::Char(CharType::Single(c)));
                         }
 
                         if negated {
@@ -110,29 +120,29 @@ impl From<String> for Regex {
                     '$' => Regex::End,
 
                     // Hit the any key
-                    '.' => Regex::Any,
+                    '.' => Regex::Char(CharType::Any),
 
                     // An alternate choice
                     // This will insert a placeholder we will deal with later
                     '|' => Regex::ChoicePlaceholder,
 
                     // Single characters
-                    c => Regex::Char(c),
+                    c => Regex::Char(CharType::Single(c)),
                 };
 
                 // Check for modifiers (+*)
                 let node = match input.first() {
                     Some('+') => {
                         input = &input[1..];
-                        Regex::OneOrMore(Box::new(node))
+                        Regex::Repeated(RepeatType::OneOrMore, Box::new(node))
                     },
                     Some('*') => {
                         input = &input[1..];
-                        Regex::ZeroOrMore(Box::new(node))
+                        Regex::Repeated(RepeatType::ZeroOrMore, Box::new(node))
                     },
                     Some('?') => {
                         input = &input[1..];
-                        Regex::ZeroOrOne(Box::new(node))
+                        Regex::Repeated(RepeatType::ZeroOrOne, Box::new(node))
                     },
                     _ => node,
                 };
@@ -191,18 +201,16 @@ impl Regex {
     fn allow_none(&self) -> bool {
         // For each match type, determine if it can match an empty string
         match self {
-            Regex::Any => false,
             Regex::Char(_) => false,
-            Regex::Range(_, _) => false,
             Regex::Sequence(seq) => seq.iter().all(|node| node.allow_none()),
             Regex::Choice(seq) => seq.iter().any(|node| node.allow_none()),
             Regex::CapturingGroup(node) => node.allow_none(),
             Regex::Not(node) => node.allow_none(),
             Regex::Start => true,
             Regex::End => true,
-            Regex::OneOrMore(node) => node.allow_none(),
-            Regex::ZeroOrMore(_) => true,
-            Regex::ZeroOrOne(_) => true,
+            Regex::Repeated(RepeatType::OneOrMore, node) => node.allow_none(),
+            Regex::Repeated(RepeatType::ZeroOrMore, _) => true,
+            Regex::Repeated(RepeatType::ZeroOrOne, _) => true,
             Regex::Backref(_) => true, // The capture group may be empty
             Regex::ChoicePlaceholder => unreachable!("ChoicePlaceholder should have been expanded"),
         }
@@ -217,18 +225,18 @@ impl Regex {
 
         match self {
             // Hit the any key
-            Regex::Any => {
+            Regex::Char(CharType::Any) => {
                 return (true, &input[1..]);
             },
 
             // Single character matches
-            Regex::Char(c) => {
+            Regex::Char(CharType::Single(c)) => {
                 if input[0] == *c {
                     return (true, &input[1..]);
                 }
                 return (false, input);
             },
-            Regex::Range(start, end) => {
+            Regex::Char(CharType::Range(start, end)) => {
                 if input[0] >= *start && input[0] <= *end {
                     return (true, &input[1..]);
                 }
@@ -253,33 +261,35 @@ impl Regex {
             },
 
             // Multi-match modifiers (+*)
-            Regex::OneOrMore(node) => {
-                let mut remaining = input;
-                let mut matched = false;
-                let mut recur_at_start = at_start;
+            Regex::Repeated(mode, node) => {
+                match mode {
+                    RepeatType::OneOrMore => {
+                        let mut remaining = input;
+                        let mut matched = false;
 
-                while let (true, new_remaining) = node.match_recur(remaining, recur_at_start, groups) {
-                    matched = true;
-                    remaining = new_remaining;
-                    recur_at_start = false;
+                        while let (true, new_remaining) = node.match_recur(remaining, at_start, groups) {
+                            matched = true;
+                            remaining = new_remaining;
+                        }
+
+                        return (matched, remaining);
+                    },
+
+                    RepeatType::ZeroOrMore => {
+                        let mut remaining = input;
+
+                        while let (true, new_remaining) = node.match_recur(remaining, at_start, groups) {
+                            remaining = new_remaining;
+                        }
+
+                        return (true, remaining);
+                    },
+
+                    RepeatType::ZeroOrOne => {
+                        let (_, new_remaining) = node.match_recur(input, at_start, groups);
+                        return (true, new_remaining);
+                    },
                 }
-
-                return (matched, remaining);
-            },
-            Regex::ZeroOrMore(node) => {
-                let mut remaining = input;
-                let mut recur_at_start = at_start;
-
-                while let (true, new_remaining) = node.match_recur(remaining, recur_at_start, groups) {
-                    remaining = new_remaining;
-                    recur_at_start = false;
-                }
-
-                return (true, remaining);
-            },
-            Regex::ZeroOrOne(node) => {
-                let (_, new_remaining) = node.match_recur(input, at_start, groups);
-                return (true, new_remaining);
             },
 
             // A sequence of matches, all of which must match
