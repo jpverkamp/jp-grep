@@ -180,8 +180,6 @@ impl Regex {
             let mut groups = vec![];
             let (matched, _) = self.match_recur(&chars[i..], i == 0, &mut groups);
 
-            dbg!(&groups);
-
             if matched {
                 return true;
             }
