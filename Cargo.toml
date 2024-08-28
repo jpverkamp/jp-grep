@@ -1,5 +1,5 @@
 [package]
-name = "my-grep"
+name = "codecrafters-grep"
 version = "0.1.0"
 authors = ["JP Verkamp <me@jverkamp.com>"]
 edition = "2021"
