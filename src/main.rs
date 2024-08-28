@@ -28,6 +28,7 @@ impl From<String> for Regex {
                             Regex::Range('0', '9'),
                             Regex::Char('_'),
                         ]),
+                        Some('\\') => Regex::Char('\\'), // Escaped backslash
                         _ => unimplemented!()
                     }
                 },
@@ -236,4 +237,6 @@ mod tests {
     test_regex!(choice_negated2, r"[^abc]", "a", false);
     test_regex!(choice_negated_long, r"[^abc]", "defaghi", true); // Any character can be not abc
     test_regex!(choice_negated_long2, r"[^abc]", "abcabc", false);
+
+    test_regex!(escaped_backslash, r"\\", "\\", true);
 }
