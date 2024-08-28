@@ -8,6 +8,8 @@ enum Regex {
     Range(char, char),
     Sequence(Vec<Regex>),
     Choice(Vec<Regex>),
+    OneOrMore(Box<Regex>),
+    ZeroOrMore(Box<Regex>),
     Not(Box<Regex>),
     Start,
     End,
@@ -71,6 +73,19 @@ impl From<String> for Regex {
                 c => Regex::Char(c),
             };
 
+            // Check for modifiers (+*)
+            let node = match chars.peek() {
+                Some('+') => {
+                    chars.next();
+                    Regex::OneOrMore(Box::new(node))
+                },
+                Some('*') => {
+                    chars.next();
+                    Regex::ZeroOrMore(Box::new(node))
+                },
+                _ => node,
+            };
+
             sequence.push(node);
         }
 
@@ -106,6 +121,8 @@ impl Regex {
             Regex::Not(node) => node.allow_none(),
             Regex::Start => true,
             Regex::End => true,
+            Regex::OneOrMore(node) => node.allow_none(),
+            Regex::ZeroOrMore(_) => true,
         }
     }
 
@@ -146,6 +163,32 @@ impl Regex {
             },
             Regex::End => {
                 return (input.len() == 0, input);
+            },
+
+            // Multi-match modifiers (+*)
+            Regex::OneOrMore(node) => {
+                let mut remaining = input;
+                let mut matched = false;
+                let mut recur_at_start = at_start;
+
+                while let (true, new_remaining) = node.match_recur(remaining, recur_at_start) {
+                    matched = true;
+                    remaining = new_remaining;
+                    recur_at_start = false;
+                }
+
+                return (matched, remaining);
+            },
+            Regex::ZeroOrMore(node) => {
+                let mut remaining = input;
+                let mut recur_at_start = at_start;
+
+                while let (true, new_remaining) = node.match_recur(remaining, recur_at_start) {
+                    remaining = new_remaining;
+                    recur_at_start = false;
+                }
+
+                return (true, remaining);
             },
 
             // A sequence of matches, all of which must match
@@ -281,4 +324,12 @@ mod tests {
     test_regex!(anchor_end3, "a$", "ab", false);
 
     test_regex!(choice_only_negate, "[^anb]", "banana", false);
+
+    test_regex!(one_or_more, "a+", "a", true);
+    test_regex!(one_or_more2, "a+", "aa", true);
+    test_regex!(one_or_more3, "a+", "bbb", false);
+
+    test_regex!(zero_or_more, "a*", "a", true);
+    test_regex!(zero_or_more2, "a*", "aa", true);
+    test_regex!(zero_or_more3, "a*", "bbb", true);
 }
