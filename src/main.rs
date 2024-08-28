@@ -15,90 +15,144 @@ enum Regex {
     Not(Box<Regex>),
     Start,
     End,
+    ChoicePlaceholder,
 }
 
 impl From<String> for Regex {
     fn from(value: String) -> Self {
-        let mut sequence = vec![];
-        let mut chars = value.chars().peekable();
+        // Read until the 'until' char, or end of string if None
+        fn read_until<'a>(input: &'a [char], until: Option<char>) -> (Regex, &'a [char]) {
+            let mut sequence = vec![];
+            let mut input = input;
 
-        while let Some(c) = chars.next() {
-            let node = match c {
-                // Predefined character groups
-                '\\' => {
-                    match chars.next() {
-                        Some('d') => Regex::Range('0', '9'),
-                        Some('w') => Regex::Choice(vec![
-                            Regex::Range('a', 'z'),
-                            Regex::Range('A', 'Z'),
-                            Regex::Range('0', '9'),
-                            Regex::Char('_'),
-                        ]),
-                        Some('\\') => Regex::Char('\\'), // Escaped backslash
-                        _ => unimplemented!()
-                    }
-                },
+            // Read until end of input
+            while let Some(&c) = input.first() {
+                input = &input[1..];
 
-                // Custom defined character groups
-                // TODO: Implement ranges
-                // TODO: Implement escaping in character groups
-                '[' => {
-                    // Handle negation
-                    let negated = if let Some('^') = chars.peek() {
-                        chars.next();
-                        true
-                    } else {
-                        false
-                    };
+                // Break if we have and hit the until character
+                if until == Some(c) {
+                    break;
+                }
 
-                    let mut choices = vec![];
-                    while let Some(c) = chars.next() {
-                        if c == ']' {
-                            break;
+                let node = match c {
+                    // Predefined character groups
+                    '\\' => {
+                        let group = match input.first() {
+                            Some('d') => Regex::Range('0', '9'),
+                            Some('w') => Regex::Choice(vec![
+                                Regex::Range('a', 'z'),
+                                Regex::Range('A', 'Z'),
+                                Regex::Range('0', '9'),
+                                Regex::Char('_'),
+                            ]),
+
+                            // Escaped control characters
+                            Some(&c) if "\\()[]|".contains(c) => Regex::Char(c),
+
+                            // A group we don't know about
+                            _ => unimplemented!()
+                        };
+                        input = &input[1..];
+                        group
+                    },
+
+                    // Custom defined character groups
+                    // TODO: Implement ranges
+                    // TODO: Implement escaping in character groups
+                    '[' => {
+                        // Handle negation
+                        let negated = if let Some('^') = input.first() {
+                            input = &input[1..];
+                            true
+                        } else {
+                            false
+                        };
+
+                        let mut choices = vec![];
+                        while let Some(&c) = input.first() {
+                            input = &input[1..];
+
+                            if c == ']' {
+                                break;
+                            }
+
+                            choices.push(Regex::Char(c));
                         }
 
-                        choices.push(Regex::Char(c));
-                    }
+                        if negated {
+                            Regex::Not(Box::new(Regex::Choice(choices)))
+                        } else {
+                            Regex::Choice(choices)
+                        }
+                    },
 
-                    if negated {
-                        Regex::Not(Box::new(Regex::Choice(choices)))
+                    // Capture groups
+                    '(' => {
+                        let (group, remaining) = read_until(input, Some(')'));
+                        input = remaining;
+                        group
+                    },
+
+                    // Anchors
+                    '^' => Regex::Start,
+                    '$' => Regex::End,
+
+                    // Hit the any key
+                    '.' => Regex::Any,
+
+                    // An alternate choice
+                    // This will insert a placeholder we will deal with later
+                    '|' => Regex::ChoicePlaceholder,
+
+                    // Single characters
+                    c => Regex::Char(c),
+                };
+
+                // Check for modifiers (+*)
+                let node = match input.first() {
+                    Some('+') => {
+                        input = &input[1..];
+                        Regex::OneOrMore(Box::new(node))
+                    },
+                    Some('*') => {
+                        input = &input[1..];
+                        Regex::ZeroOrMore(Box::new(node))
+                    },
+                    Some('?') => {
+                        input = &input[1..];
+                        Regex::ZeroOrOne(Box::new(node))
+                    },
+                    _ => node,
+                };
+
+                sequence.push(node);
+            }
+
+            // If we have any choice placeholders, we need to split the sequence into choices
+            if sequence.contains(&Regex::ChoicePlaceholder) {
+                let mut choices = vec![];
+                let mut current_choice = vec![];
+
+                for node in sequence {
+                    if node == Regex::ChoicePlaceholder {
+                        choices.push(Regex::Sequence(current_choice));
+                        current_choice = vec![];
                     } else {
-                        Regex::Choice(choices)
+                        current_choice.push(node);
                     }
-                },
+                }
 
-                // Anchors
-                '^' => Regex::Start,
-                '$' => Regex::End,
+                choices.push(Regex::Sequence(current_choice));
+                return (Regex::Choice(choices), input);
+            }
 
-                // Hit the any key
-                '.' => Regex::Any,
-
-                // Single characters
-                c => Regex::Char(c),
-            };
-
-            // Check for modifiers (+*)
-            let node = match chars.peek() {
-                Some('+') => {
-                    chars.next();
-                    Regex::OneOrMore(Box::new(node))
-                },
-                Some('*') => {
-                    chars.next();
-                    Regex::ZeroOrMore(Box::new(node))
-                },
-                Some('?') => {
-                    chars.next();
-                    Regex::ZeroOrOne(Box::new(node))
-                },
-                _ => node,
-            };
-
-            sequence.push(node);
+            (Regex::Sequence(sequence), input)
         }
 
-        Regex::Sequence(sequence)
+        let chars = value.chars().collect::<Vec<_>>();
+        let (result, remaining_chars) = read_until(&chars, None);
+        assert_eq!(remaining_chars.len(), 0, "Remaining input: {:?}", remaining_chars);
+        result
     }
 }
 
@@ -134,6 +188,7 @@ impl Regex {
             Regex::OneOrMore(node) => node.allow_none(),
             Regex::ZeroOrMore(_) => true,
             Regex::ZeroOrOne(_) => true,
+            Regex::ChoicePlaceholder => unreachable!("ChoicePlaceholder should have been expanded"),
         }
     }
 
@@ -243,6 +298,8 @@ impl Regex {
                 return (false, input);
             },
 
+            // This should have been expanded by the time we get here
+            Regex::ChoicePlaceholder => unreachable!("ChoicePlaceholder should have been expanded"),
         }
     }
 }
@@ -360,4 +417,14 @@ mod tests {
     test_regex!(any_key, "c.t", "cat", true);
     test_regex!(any_key2, "c.t", "cot", true);
     test_regex!(any_key3, "c.t", "dog", false);
+
+    test_regex!(alternate, "a|b", "a", true);
+    test_regex!(alternate2, "a|b", "b", true);
+    test_regex!(alternate3, "a|b", "c", false);
+    test_regex!(alternate4, "(cat|dog)", "cat", true);
+    test_regex!(alternate5, "(cat|dog)", "frog", false);
+
+    test_regex!(multiple_groups, "(a|b)(c|d)", "ac", true);
+    test_regex!(multiple_groups2, "(a|b)(c|d)", "bd", true);
+    test_regex!(multiple_groups3, "(a|b)(c|d)", "ca", false);
 }
