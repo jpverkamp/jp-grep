@@ -4,6 +4,7 @@ use clap::Parser;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Regex {
+    Any,
     Char(char),
     Range(char, char),
     Sequence(Vec<Regex>),
@@ -70,6 +71,9 @@ impl From<String> for Regex {
                 '^' => Regex::Start,
                 '$' => Regex::End,
 
+                // Hit the any key
+                '.' => Regex::Any,
+
                 // Single characters
                 c => Regex::Char(c),
             };
@@ -119,6 +123,7 @@ impl Regex {
     fn allow_none(&self) -> bool {
         // For each match type, determine if it can match an empty string
         match self {
+            Regex::Any => false,
             Regex::Char(_) => false,
             Regex::Range(_, _) => false,
             Regex::Sequence(seq) => seq.iter().all(|node| node.allow_none()),
@@ -140,6 +145,11 @@ impl Regex {
         }
 
         match self {
+            // Hit the any key
+            Regex::Any => {
+                return (true, &input[1..]);
+            },
+
             // Single character matches
             Regex::Char(c) => {
                 if input[0] == *c {
@@ -346,4 +356,8 @@ mod tests {
     test_regex!(zero_or_one, "a?", "a", true);
     test_regex!(zero_or_one2, "a?", "aa", true);
     test_regex!(zero_or_one3, "a?", "bbb", true);
+
+    test_regex!(any_key, "c.t", "cat", true);
+    test_regex!(any_key2, "c.t", "cot", true);
+    test_regex!(any_key3, "c.t", "dog", false);
 }
