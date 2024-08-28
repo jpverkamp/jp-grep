@@ -9,6 +9,8 @@ enum Regex {
     Sequence(Vec<Regex>),
     Choice(Vec<Regex>),
     Not(Box<Regex>),
+    Start,
+    End,
 }
 
 impl From<String> for Regex {
@@ -61,9 +63,9 @@ impl From<String> for Regex {
                     }
                 },
 
-                // Anchors, use 'start of text' and 'end of text' characters
-                '^' => Regex::Char(1 as char),
-                '$' => Regex::Char(2 as char),
+                // Anchors
+                '^' => Regex::Start,
+                '$' => Regex::End,
 
                 // Single characters
                 c => Regex::Char(c),
@@ -79,14 +81,13 @@ impl From<String> for Regex {
 impl Regex {
     pub fn matches(&self, input: &str) -> bool {
         // Convert to char vec with \1 first and \2 last for start and end of text
-        let chars = vec![1 as char].into_iter()
-            .chain(input.chars())
-            .chain(vec![2 as char].into_iter())
-            .collect::<Vec<_>>();
+        let chars = input.chars().collect::<Vec<_>>();
 
         // Pattern can apply at any starting point
         for i in 0..chars.len() {
-            let (matched, _) = self.match_recur(&chars[i..], true);
+            log::debug!("matches({:?}) against {:?}, start={}", chars[i..].iter().collect::<String>(), &self, i == 0);
+            
+            let (matched, _) = self.match_recur(&chars[i..], i == 0);
             if matched {
                 return true;
             }
@@ -103,6 +104,8 @@ impl Regex {
             Regex::Sequence(seq) => seq.iter().all(|node| node.allow_none()),
             Regex::Choice(seq) => seq.iter().any(|node| node.allow_none()),
             Regex::Not(node) => node.allow_none(),
+            Regex::Start => true,
+            Regex::End => true,
         }
     }
 
@@ -137,6 +140,14 @@ impl Regex {
                 return (false, input);
             },
 
+            // Anchors
+            Regex::Start => {
+                return (at_start, input);
+            },
+            Regex::End => {
+                return (input.len() == 0, input);
+            },
+
             // A sequence of matches, all of which must match
             // If any fails, abort the entire sequence and advance to try again
             Regex::Sequence(seq) => {
@@ -146,7 +157,7 @@ impl Regex {
                 for node in seq {
                     let (matched, new_remaining) = node.match_recur(remaining, seq_at_start);
                     if !matched {
-                        return self.match_recur(&input[1..], at_start);
+                        return (false, input);
                     }
 
                     remaining = new_remaining;
@@ -212,6 +223,7 @@ mod tests {
         ($name:ident, $regex:expr, $input:expr, $expected:expr) => {
             #[test]
             fn $name() {
+                // TODO: Test against system grep to verify expected is actually expected
                 let regex = Regex::from($regex.to_string());
                 assert_eq!(regex.matches($input), $expected);
             }
@@ -255,9 +267,9 @@ mod tests {
     test_regex!(choice_multi_not, r"[abc]", "defgh", false);
 
     test_regex!(choice_negated, r"[^abc]", "d", true);
-    test_regex!(choice_negated2, r"[^abc]", "a", true);
+    test_regex!(choice_negated2, r"[^abc]", "a", false);
     test_regex!(choice_negated_long, r"[^abc]", "defaghi", true); // Any character can be not abc
-    test_regex!(choice_negated_long2, r"[^abc]", "abcabc", true);
+    test_regex!(choice_negated_long2, r"[^abc]", "abcabc", false); // All characters must be not abc
 
     test_regex!(escaped_backslash, r"\\", "\\", true);
 
@@ -267,4 +279,6 @@ mod tests {
     test_regex!(anchor_end, "a$", "a", true);
     test_regex!(anchor_end2, "a$", "ba", true);
     test_regex!(anchor_end3, "a$", "ab", false);
+
+    test_regex!(choice_only_negate, "[^anb]", "banana", false);
 }
