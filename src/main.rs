@@ -4,10 +4,10 @@ use clap::Parser;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Regex {
+    Char(char),
+    Range(char, char),
     Sequence(Vec<Regex>),
-    LiteralChar(char),
-    AnyDigit,
-    AnyWord,
+    Choice(Vec<Regex>),
 }
 
 impl From<String> for Regex {
@@ -17,14 +17,38 @@ impl From<String> for Regex {
 
         while let Some(c) = chars.next() {
             let node = match c {
+                // Predefined character groups
                 '\\' => {
                     match chars.next() {
-                        Some('d') => Regex::AnyDigit,
-                        Some('w') => Regex::AnyWord,
+                        Some('d') => Regex::Range('0', '9'),
+                        Some('w') => Regex::Choice(vec![
+                            Regex::Range('a', 'z'),
+                            Regex::Range('A', 'Z'),
+                            Regex::Range('0', '9'),
+                            Regex::Char('_'),
+                        ]),
                         _ => unimplemented!()
                     }
                 },
-                c => Regex::LiteralChar(c),
+
+                // Custom defined character groups
+                // TODO: Implement ranges
+                // TODO: Implement escaping in character groups
+                '[' => {
+                    let mut choices = vec![];
+                    while let Some(c) = chars.next() {
+                        if c == ']' {
+                            break;
+                        }
+
+                        choices.push(Regex::Char(c));
+                    }
+
+                    Regex::Choice(choices)
+                },
+
+                // Single characters
+                c => Regex::Char(c),
             };
 
             sequence.push(node);
@@ -50,22 +74,15 @@ impl Regex {
 
         match self {
             // Single character matches
-            Regex::LiteralChar(c) => {
+            Regex::Char(c) => {
                 if input[0] == *c {
                     return (true, &input[1..]);
                 }
 
                 return self.match_recur(&input[1..]);
             },
-            Regex::AnyDigit => {
-                if input[0].is_digit(10) {
-                    return (true, &input[1..]);
-                }
-
-                return self.match_recur(&input[1..]);
-            },
-            Regex::AnyWord => {
-                if input[0].is_alphanumeric() {
+            Regex::Range(start, end) => {
+                if input[0] >= *start && input[0] <= *end {
                     return (true, &input[1..]);
                 }
 
@@ -87,6 +104,20 @@ impl Regex {
 
                 return (true, remaining);
             },
+
+            // A choice of matches, any of which much match
+            // If none match, abort the entire choice and advance to try again
+            Regex::Choice(seq) => {
+                for node in seq {
+                    let (matched, new_remaining) = node.match_recur(input);
+                    if matched {
+                        return (true, new_remaining);
+                    }
+                }
+
+                return self.match_recur(&input[1..]);
+            },
+
         }
     }
 }
@@ -167,5 +198,16 @@ mod tests {
         assert!(!regex.matches("1"));
         assert!(!regex.matches(" "));
         assert!(!regex.matches("\n"));
+    }
+
+    #[test]
+    fn test_choice() {
+        let regex = Regex::from(r"[abc]".to_string());
+        assert!(regex.matches("a"));
+        assert!(regex.matches("b"));
+        assert!(regex.matches("c"));
+        assert!(!regex.matches("d"));
+        assert!(!regex.matches("e"));
+        assert!(!regex.matches("f"));
     }
 }
