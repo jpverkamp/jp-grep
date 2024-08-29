@@ -1,5 +1,5 @@
 [package]
-name = "codecrafters-grep"
+name = "jp-grep"
 version = "0.1.0"
 authors = ["JP Verkamp <me@jverkamp.com>"]
 edition = "2021"
@@ -9,4 +9,3 @@ rust-version = "1.80"
 clap = { version = "4.5.16", features = ["derive"] }
 env_logger = "0.11.5"
 log = "0.4.22"
-thiserror = "1.0.63"
