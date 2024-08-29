@@ -4,16 +4,24 @@ use clap::Parser;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Regex {
+    // Single characters
     Char(CharType),
+    // A sequence of regexes that each must match in order
     Sequence(Vec<Regex>),
-    Choice(Vec<Regex>),
+    // A character group, may be negated
+    // True if inverted, (eg [^abc])
+    CharacterGroup(Vec<CharType>, bool),
+    // A capturing group used for backreferences
     CapturingGroup(Box<Regex>),
+    Backref(usize),
+    // Repeat a pattern (e.g. +, *, ?)
     Repeated(RepeatType, Box<Regex>),
-    Not(Box<Regex>),
+    // Anchors for teh start and end of a line
     Start,
     End,
+    // Used for parsing |, will be expanded into a Choice
+    Choice(Vec<Regex>),
     ChoicePlaceholder,
-    Backref(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -94,14 +102,10 @@ impl From<String> for Regex {
                                 break;
                             }
 
-                            choices.push(Regex::Char(CharType::Single(c)));
+                            choices.push(CharType::Single(c));
                         }
 
-                        if negated {
-                            Regex::Not(Box::new(Regex::Choice(choices)))
-                        } else {
-                            Regex::Choice(choices)
-                        }
+                        Regex::CharacterGroup(choices, negated)
                     },
 
                     // Capture groups
@@ -202,10 +206,10 @@ impl Regex {
         // For each match type, determine if it can match an empty string
         match self {
             Regex::Char(_) => false,
+            Regex::CharacterGroup(_, _) => false,
             Regex::Sequence(seq) => seq.iter().all(|node| node.allow_none()),
             Regex::Choice(seq) => seq.iter().any(|node| node.allow_none()),
             Regex::CapturingGroup(node) => node.allow_none(),
-            Regex::Not(node) => node.allow_none(),
             Regex::Start => true,
             Regex::End => true,
             Regex::Repeated(RepeatType::OneOrMore, node) => node.allow_none(),
@@ -243,13 +247,21 @@ impl Regex {
                 return (false, input);
             },
 
-            // A negative match of any other matcher
-            Regex::Not(node) => {
-                let (matched, new_remaining) = node.match_recur(input, at_start, groups);
-                if !matched {
-                    return (true, new_remaining);
+            // Character groups, match any of the characters (or none if negated)
+            Regex::CharacterGroup(chars, negated) => {
+                let matched = chars.iter().any(|c| {
+                    match c {
+                        CharType::Single(c) => input[0] == *c,
+                        CharType::Range(start, end) => input[0] >= *start && input[0] <= *end,
+                        CharType::Any => true,
+                    }
+                });
+
+                if *negated {
+                    return (!matched, &input[1..]);
                 }
-                return (false, input);
+
+                return (matched, &input[1..]);
             },
 
             // Anchors
@@ -490,4 +502,6 @@ mod tests {
     test_regex!(backref_not, r"(a)\1", "ab", false);
     test_regex!(backref_double, r"(a)\1\1", "aaa", true);
     test_regex!(backref_multiple, r"(a)(b)\2\1", "abba", true);
+
+    test_regex!(negative_repeated_character_group2, r"[^abc]+", "xyz", true);
 }
