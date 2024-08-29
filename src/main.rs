@@ -192,9 +192,9 @@ impl Regex {
             log::debug!("matches({:?}) against {:?}, start={}", chars[i..].iter().collect::<String>(), &self, i == 0);
 
             let mut groups = vec![];
-            let (matched, _) = self.match_recur(&chars[i..], i == 0, &mut groups);
+            let results = self.match_recur(&chars[i..], i == 0, &mut groups);
 
-            if matched {
+            if !results.is_empty() {
                 return true;
             }
         }
@@ -220,31 +220,35 @@ impl Regex {
         }
     }
 
-    fn match_recur<'a>(&self, input: &'a [char], at_start: bool, groups: &mut Vec<Option<&'a [char]>>) -> (bool, &'a [char]) {
+    fn match_recur<'a>(&self, input: &'a [char], at_start: bool, groups: &mut Vec<Option<&'a [char]>>) -> Vec<&'a [char]> {
         log::debug!("match_recur({self:?}, {}, {at_start})", input.iter().collect::<String>());
 
         if input.len() == 0 {
-            return (self.allow_none(), input);
+            if self.allow_none() {
+                return vec![input];
+            } else {
+                return vec![];
+            }
         }
 
         match self {
             // Hit the any key
             Regex::Char(CharType::Any) => {
-                return (true, &input[1..]);
+                return vec![&input[1..]];
             },
 
             // Single character matches
             Regex::Char(CharType::Single(c)) => {
                 if input[0] == *c {
-                    return (true, &input[1..]);
+                    return vec![&input[1..]];
                 }
-                return (false, input);
+                return vec![];
             },
             Regex::Char(CharType::Range(start, end)) => {
                 if input[0] >= *start && input[0] <= *end {
-                    return (true, &input[1..]);
+                    return vec![&input[1..]];
                 }
-                return (false, input);
+                return vec![];
             },
 
             // Character groups, match any of the characters (or none if negated)
@@ -257,49 +261,87 @@ impl Regex {
                     }
                 });
 
-                if *negated {
-                    return (!matched, &input[1..]);
+                if negated ^ matched {
+                    return vec![&input[1..]];
+                } else {
+                    return vec![];
                 }
-
-                return (matched, &input[1..]);
             },
 
             // Anchors
             Regex::Start => {
-                return (at_start, input);
+                if at_start {
+                    return vec![input];
+                } else {
+                    return vec![];
+                }
             },
             Regex::End => {
-                return (input.len() == 0, input);
+                if input.len() == 0 {
+                    return vec![input];
+                } else {
+                    return vec![];
+                }
             },
 
-            // Multi-match modifiers (+*)
+            // Multi-match modifiers (?+*)
+            // NOTE: These should match the longest group they can and still work
             Regex::Repeated(mode, node) => {
                 match mode {
-                    RepeatType::OneOrMore => {
+                    RepeatType::ZeroOrMore => {
+                        // Return all possible matches at this level
+                        // Base case: match nothing and return input as is
+                        let mut results = vec![input];
                         let mut remaining = input;
-                        let mut matched = false;
 
-                        while let (true, new_remaining) = node.match_recur(remaining, at_start, groups) {
-                            matched = true;
-                            remaining = new_remaining;
+                        loop {
+                            let recur = node.match_recur(remaining, at_start, groups);
+                            if recur.is_empty() {
+                                break;
+                            }
+
+                            for new_remaining in recur {
+                                results.push(new_remaining);
+                                remaining = new_remaining;
+                            }
                         }
 
-                        return (matched, remaining);
+                        results.reverse();
+                        return results;
                     },
 
-                    RepeatType::ZeroOrMore => {
+                    RepeatType::OneOrMore => {
+                        // Return all possible matches at this level
+                        // No base case: must match at least once
+                        let mut results = vec![];
                         let mut remaining = input;
 
-                        while let (true, new_remaining) = node.match_recur(remaining, at_start, groups) {
-                            remaining = new_remaining;
+                        loop {
+                            let recur = node.match_recur(remaining, at_start, groups);
+                            if recur.is_empty() {
+                                break;
+                            }
+
+                            for new_remaining in recur {
+                                results.push(new_remaining);
+                                remaining = new_remaining;
+                            }
                         }
 
-                        return (true, remaining);
+                        results.reverse();
+                        return results;
                     },
 
                     RepeatType::ZeroOrOne => {
-                        let (_, new_remaining) = node.match_recur(input, at_start, groups);
-                        return (true, new_remaining);
+                        // If zero match
+                        let mut results = vec![input];
+
+                        // If one match
+                        let mut recur = node.match_recur(input, at_start, groups);
+                        results.append(&mut recur);
+
+                        results.reverse();
+                        return results;
                     },
                 }
             },
@@ -307,33 +349,34 @@ impl Regex {
             // A sequence of matches, all of which must match
             // If any fails, abort the entire sequence and advance to try again
             Regex::Sequence(seq) => {
-                let mut remaining = input;
+                // Keep a list of the possible branching values
+                // TODO: This is hugely memory intensive :)
+                let mut remainings = vec![input];
                 let mut seq_at_start = at_start;
 
                 for node in seq {
-                    let (matched, new_remaining) = node.match_recur(remaining, seq_at_start, groups);
-                    if !matched {
-                        return (false, input);
-                    }
-
-                    remaining = new_remaining;
+                    remainings = remainings.into_iter().flat_map(|input| {
+                        node.match_recur(input, seq_at_start, groups)
+                    }).collect();
                     seq_at_start = false;
                 }
 
-                return (true, remaining);
+                return remainings;
             },
 
             // A choice of matches, any of which much match
             // If none match, abort the entire choice and advance to try again
             Regex::Choice(seq) => {
+                let mut results = vec![];
+
                 for node in seq {
-                    let (matched, new_remaining) = node.match_recur(input, at_start, groups);
-                    if matched {
-                        return (true, new_remaining);
+                    let mut recur = node.match_recur(input, at_start, groups);
+                    if !recur.is_empty() {
+                        results.append(&mut recur);
                     }
                 }
 
-                return (false, input);
+                return results;
             },
 
             // Capturing groups wrap another node and then store what was captured
@@ -342,14 +385,14 @@ impl Regex {
                 let index = groups.len();
                 groups.push(None);
 
-                let (matched, new_remaining) = node.match_recur(input, at_start, groups);
-                if matched {
-                    groups[index] = Some(&input[..(input.len() - new_remaining.len())]);
-                    return (true, new_remaining);
+                let recur = node.match_recur(input, at_start, groups);
+                if recur.is_empty() {
+                    groups.remove(index);
+                    return vec![];
+                } else {
+                    groups[index] = Some(&input[..(input.len() - recur[0].len())]);
+                    return recur;
                 }
-
-                groups.remove(index);
-                return (false, input);
             },
 
             // Backreferences
@@ -363,9 +406,9 @@ impl Regex {
 
                 let captured = groups[index].unwrap();
                 if input.starts_with(captured) {
-                    return (true, &input[captured.len()..]);
+                    return vec![&input[captured.len()..]];
                 }
-                return (false, input);
+                return vec![];
             },
 
             // This should have been expanded by the time we get here
@@ -502,6 +545,9 @@ mod tests {
     test_regex!(backref_not, r"(a)\1", "ab", false);
     test_regex!(backref_double, r"(a)\1\1", "aaa", true);
     test_regex!(backref_multiple, r"(a)(b)\2\1", "abba", true);
+    test_regex!(backref_nested, r"(a(b)\2)\1", "abbabb", true);
 
     test_regex!(negative_repeated_character_group2, r"[^abc]+", "xyz", true);
+
+    test_regex!(repeated_longest, r"a+a", "aaa", true);
 }
