@@ -271,15 +271,25 @@ impl From<String> for Regex {
                             // Note for all the input[N..], it's N-1 because we'll consume one later
                             match input.iter().nth(1) {
                                 Some('<') => {
-                                    let mut name = String::new();
-                                    while let Some(&c) = input.iter().nth(name.len() + 2) {
-                                        if c == '>' {
-                                            break;
+                                    // Lookbehind
+                                    if let Some('=') = input.iter().nth(2) {
+                                        mode = Mode::Assertion(AssertionType::PositiveLookbehind);
+                                        input = &input[2..];
+                                    } else if let Some('!') = input.iter().nth(2) {
+                                        mode = Mode::Assertion(AssertionType::NegativeLookbehind);
+                                        input = &input[2..];
+                                    } else {
+                                        // Named group
+                                        let mut name = String::new();
+                                        while let Some(&c) = input.iter().nth(name.len() + 2) {
+                                            if c == '>' {
+                                                break;
+                                            }
+                                            name.push(c);
                                         }
-                                        name.push(c);
+                                        input = &input[name.len() + 2..];
+                                        mode = Mode::Named(name);
                                     }
-                                    input = &input[name.len() + 2..];
-                                    mode = Mode::Named(name);
                                 }
                                 Some(':') => {
                                     mode = Mode::NonCapturing;
@@ -315,18 +325,6 @@ impl From<String> for Regex {
 
                                     mode = Mode::Flags(i, m, s);
                                     input = &input[char_count..];
-                                }
-                                Some('<') => {
-                                    // Lookbehind
-                                    if let Some('=') = input.iter().nth(2) {
-                                        mode = Mode::Assertion(AssertionType::PositiveLookbehind);
-                                        input = &input[2..];
-                                    } else if let Some('!') = input.iter().nth(2) {
-                                        mode = Mode::Assertion(AssertionType::NegativeLookbehind);
-                                        input = &input[2..];
-                                    } else {
-                                        panic!("Invalid lookbehind assertion, expected only ?<= or ?<!");
-                                    }
                                 }
                                 _ => {
                                     panic!("Invalid group assertion, there must be at least one character after the ?");

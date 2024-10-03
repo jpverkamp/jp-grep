@@ -286,6 +286,8 @@ mod tests {
     test_regex!(any_digit_empty, r"\d", "", false);
     test_regex!(any_digit_multi, r"\d", "abc123", true);
     test_regex!(any_digit_multi_not, r"\d", "abc", false);
+    test_regex!(not_any_digit, r"\D", "a", true);
+    test_regex!(not_any_digit2, r"\D", "1", false);
 
     test_regex!(any_word, r"\w", "a", true);
     test_regex!(any_word_not, r"\w", "!", false);
@@ -313,6 +315,12 @@ mod tests {
     test_regex!(choice_negated2, r"[^abc]", "a", false);
     test_regex!(choice_negated_long, r"[^abc]", "defaghi", true); // Any character can be not abc
     test_regex!(choice_negated_long2, r"[^abc]", "abcabc", false); // All characters must be not abc
+
+    test_regex!(group_range, r"[a-z]", "a", true);
+    test_regex!(group_range2, r"[a-z]", "z", true);
+    test_regex!(group_range3, r"[a-z]", "A", false);
+    test_regex!(group_range_edge_case, r"[a-]", "-", true);
+    test_regex!(group_range_edge_case2, r"[-a]", "-", true);
 
     test_regex!(escaped_backslash, r"\\", "\\", true);
 
