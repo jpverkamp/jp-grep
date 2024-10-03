@@ -8,7 +8,7 @@ pub(crate) enum Regex {
     // True if inverted, (eg [^abc])
     CharacterGroup(Vec<CharType>, bool),
     // A capturing group used for backreferences
-    CapturingGroup(Box<Regex>),
+    CapturingGroup(Box<Regex>, Option<String>),
     Backref(usize),
     // Assertions
     Assertion(AssertionType, Box<Regex>),

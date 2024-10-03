@@ -257,27 +257,30 @@ impl From<String> for Regex {
 
                     // Capture groups and assertions
                     '(' => {
-                        // TODO (?:x) for non-capturing groups
-                        // TODO (?<name>x) for named groups
-                        // TODO (?flags:x) for flags (i, m, and s)
-                        // TODO (?=x) for positive lookahead
-                        // TODO (?!x) for negative lookahead
-                        // TODO (?<=x) for positive lookbehind
-                        // TODO (?<!x) for negative lookbehind
-
                         enum Mode {
                             Default,
                             NonCapturing,
+                            Named(String),
                             Flags(bool, bool, bool),
                             Assertion(AssertionType),
                         }
-
                         let mut mode = Mode::Default;
 
                         if let Some('?') = input.first() {
                             // Second character will determine the mode
                             // Note for all the input[N..], it's N-1 because we'll consume one later
                             match input.iter().nth(1) {
+                                Some('<') => {
+                                    let mut name = String::new();
+                                    while let Some(&c) = input.iter().nth(name.len() + 2) {
+                                        if c == '>' {
+                                            break;
+                                        }
+                                        name.push(c);
+                                    }
+                                    input = &input[name.len() + 2..];
+                                    mode = Mode::Named(name);
+                                }
                                 Some(':') => {
                                     mode = Mode::NonCapturing;
                                     input = &input[1..];
@@ -338,7 +341,8 @@ impl From<String> for Regex {
                         input = remaining;
 
                         match mode {
-                            Mode::Default => Regex::CapturingGroup(Box::new(group)),
+                            Mode::Default => Regex::CapturingGroup(Box::new(group), None),
+                            Mode::Named(name) => Regex::CapturingGroup(Box::new(group), Some(name)),
                             Mode::NonCapturing => group,
                             Mode::Flags(_i, _m, _s) => {
                                 unimplemented!("Flags are not supported (yet!)");
@@ -579,6 +583,17 @@ mod tests {
                     Regex::Sequence(vec![Regex::Char(CharType::Single('b')), Regex::Char(CharType::Single('a')), Regex::Char(CharType::Single('t'))])
                 )
             ),
+        ])
+    );
+
+    test_parse!(
+        named,
+        "a(?<name>foo)",
+        Regex::Sequence(vec![
+            Regex::Char(CharType::Single('a')),
+            Regex::CapturingGroup(Box::new(
+                Regex::Sequence(vec![Regex::Char(CharType::Single('f')), Regex::Char(CharType::Single('o')), Regex::Char(CharType::Single('o'))])
+            ), Some("name".to_string()))
         ])
     );
 }

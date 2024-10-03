@@ -32,7 +32,7 @@ impl Regex {
             Regex::CharacterGroup(_, _) => false,
             Regex::Sequence(seq) => seq.iter().all(|node| node.allow_none()),
             Regex::Choice(seq) => seq.iter().any(|node| node.allow_none()),
-            Regex::CapturingGroup(node) => node.allow_none(),
+            Regex::CapturingGroup(node, _) => node.allow_none(),
             Regex::Assertion(_, _) => true,
             Regex::Start => true,
             Regex::End => true,
@@ -211,7 +211,12 @@ impl Regex {
             }
 
             // Capturing groups wrap another node and then store what was captured
-            Regex::CapturingGroup(node) => {
+            Regex::CapturingGroup(node, name) => {
+                assert!(
+                    name.is_none(),
+                    "Named capturing groups not implemented (yet!)"
+                );
+
                 // Add a placeholder to get order correct
                 let index = groups.len();
                 groups.push(None);
