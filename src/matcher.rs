@@ -33,6 +33,7 @@ impl Regex {
             Regex::Sequence(seq) => seq.iter().all(|node| node.allow_none()),
             Regex::Choice(seq) => seq.iter().any(|node| node.allow_none()),
             Regex::CapturingGroup(node) => node.allow_none(),
+            Regex::Assertion(_, _) => true,
             Regex::Start => true,
             Regex::End => true,
             Regex::Repeated(RepeatType::OneOrMore, node) => node.allow_none(),
@@ -225,6 +226,11 @@ impl Regex {
                 }
             }
 
+            // Assertions match but don't consume
+            Regex::Assertion(_type, _node) => {
+                unimplemented!("Assertions not implemented (yet!)");
+            }
+
             // Backreferences
             Regex::Backref(index) => {
                 let index = index - 1; // 1-indexed
@@ -246,7 +252,6 @@ impl Regex {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

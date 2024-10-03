@@ -1,4 +1,4 @@
-use crate::types::{CharType, Regex, RepeatType};
+use crate::types::{AssertionType, CharType, Regex, RepeatType};
 
 impl From<String> for Regex {
     fn from(value: String) -> Self {
@@ -21,57 +21,73 @@ impl From<String> for Regex {
                     '\\' => {
                         let escaped_c = input.first();
                         let group = match escaped_c {
-                            Some('d') => Regex::CharacterGroup(vec![CharType::Range('0', '9')], false),
-                            Some('D') => Regex::CharacterGroup(vec![CharType::Range('0', '9')], true),
+                            Some('d') => {
+                                Regex::CharacterGroup(vec![CharType::Range('0', '9')], false)
+                            }
+                            Some('D') => {
+                                Regex::CharacterGroup(vec![CharType::Range('0', '9')], true)
+                            }
 
-                            Some('w') => Regex::CharacterGroup(vec![
-                                CharType::Range('a', 'z'),
-                                CharType::Range('A', 'Z'),
-                                CharType::Range('0', '9'),
-                                CharType::Single('_'),
-                            ], false),
-                            Some('W') => Regex::CharacterGroup(vec![
-                                CharType::Range('a', 'z'),
-                                CharType::Range('A', 'Z'),
-                                CharType::Range('0', '9'),
-                                CharType::Single('_'),
-                            ], true),
+                            Some('w') => Regex::CharacterGroup(
+                                vec![
+                                    CharType::Range('a', 'z'),
+                                    CharType::Range('A', 'Z'),
+                                    CharType::Range('0', '9'),
+                                    CharType::Single('_'),
+                                ],
+                                false,
+                            ),
+                            Some('W') => Regex::CharacterGroup(
+                                vec![
+                                    CharType::Range('a', 'z'),
+                                    CharType::Range('A', 'Z'),
+                                    CharType::Range('0', '9'),
+                                    CharType::Single('_'),
+                                ],
+                                true,
+                            ),
 
                             // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_expressions/Character_classes
-                            Some('s') => Regex::CharacterGroup(vec![
-                                CharType::Single('\u{000c}'), // Form feed \f
-                                CharType::Single('\n'),
-                                CharType::Single('\r'),
-                                CharType::Single('\t'),
-                                CharType::Single('\u{000b}'), // Vertical tab \v
-                                CharType::Single('\u{0020}'),
-                                CharType::Single('\u{00a0}'),
-                                CharType::Single('\u{1680}'),
-                                CharType::Range('\u{2000}', '\u{200a}'),
-                                CharType::Single('\u{2028}'),
-                                CharType::Single('\u{2029}'),
-                                CharType::Single('\u{202f}'),
-                                CharType::Single('\u{205f}'),
-                                CharType::Single('\u{3000}'),
-                                CharType::Single('\u{feff}'),
-                            ], false),
-                            Some('S') => Regex::CharacterGroup(vec![
-                                CharType::Single('\u{000c}'), // Form feed \f
-                                CharType::Single('\n'),
-                                CharType::Single('\r'),
-                                CharType::Single('\t'),
-                                CharType::Single('\u{000b}'), // Vertical tab \v
-                                CharType::Single('\u{0020}'),
-                                CharType::Single('\u{00a0}'),
-                                CharType::Single('\u{1680}'),
-                                CharType::Range('\u{2000}', '\u{200a}'),
-                                CharType::Single('\u{2028}'),
-                                CharType::Single('\u{2029}'),
-                                CharType::Single('\u{202f}'),
-                                CharType::Single('\u{205f}'),
-                                CharType::Single('\u{3000}'),
-                                CharType::Single('\u{feff}'),
-                            ], true),
+                            Some('s') => Regex::CharacterGroup(
+                                vec![
+                                    CharType::Single('\u{000c}'), // Form feed \f
+                                    CharType::Single('\n'),
+                                    CharType::Single('\r'),
+                                    CharType::Single('\t'),
+                                    CharType::Single('\u{000b}'), // Vertical tab \v
+                                    CharType::Single('\u{0020}'),
+                                    CharType::Single('\u{00a0}'),
+                                    CharType::Single('\u{1680}'),
+                                    CharType::Range('\u{2000}', '\u{200a}'),
+                                    CharType::Single('\u{2028}'),
+                                    CharType::Single('\u{2029}'),
+                                    CharType::Single('\u{202f}'),
+                                    CharType::Single('\u{205f}'),
+                                    CharType::Single('\u{3000}'),
+                                    CharType::Single('\u{feff}'),
+                                ],
+                                false,
+                            ),
+                            Some('S') => Regex::CharacterGroup(
+                                vec![
+                                    CharType::Single('\u{000c}'), // Form feed \f
+                                    CharType::Single('\n'),
+                                    CharType::Single('\r'),
+                                    CharType::Single('\t'),
+                                    CharType::Single('\u{000b}'), // Vertical tab \v
+                                    CharType::Single('\u{0020}'),
+                                    CharType::Single('\u{00a0}'),
+                                    CharType::Single('\u{1680}'),
+                                    CharType::Range('\u{2000}', '\u{200a}'),
+                                    CharType::Single('\u{2028}'),
+                                    CharType::Single('\u{2029}'),
+                                    CharType::Single('\u{202f}'),
+                                    CharType::Single('\u{205f}'),
+                                    CharType::Single('\u{3000}'),
+                                    CharType::Single('\u{feff}'),
+                                ],
+                                true,
+                            ),
 
                             // Character literals
                             Some('n') => Regex::Char(CharType::Single('\n')),
@@ -111,17 +127,26 @@ impl From<String> for Regex {
                                     let c = match input.iter().nth(i + 1) {
                                         Some(&c) => c,
                                         None => {
-                                            panic!("Not enough characters in {}", escaped_c.unwrap());
+                                            panic!(
+                                                "Not enough characters in {}",
+                                                escaped_c.unwrap()
+                                            );
                                         }
                                     };
 
-                                    code_point = code_point * 16 + c.to_digit(16).expect(format!("Invalid hex digit '{c}' in \\u sequence").as_str());
+                                    code_point = code_point * 16
+                                        + c.to_digit(16).expect(
+                                            format!("Invalid hex digit '{c}' in \\u sequence")
+                                                .as_str(),
+                                        );
                                 }
 
                                 // Drop the characters we just read; the u/h will be removed at the end of this match
                                 input = &input[length..];
 
-                                Regex::Char(CharType::Single(char::from_u32(code_point).expect(format!("Invalid unicode code point: {code_point}").as_str())))
+                                Regex::Char(CharType::Single(char::from_u32(code_point).expect(
+                                    format!("Invalid unicode code point: {code_point}").as_str(),
+                                )))
                             }
 
                             // TODO: Unicode properties
@@ -133,6 +158,12 @@ impl From<String> for Regex {
                             Some(&c) if c.is_digit(10) => {
                                 let index = c.to_digit(10).unwrap() as usize;
                                 Regex::Backref(index)
+                            }
+
+                            // TODO: Named backreferences
+                            // Format is \k<...>
+                            Some('k') => {
+                                unimplemented!("Named backreferences are not supported (yet!)");
                             }
 
                             // Escaped characters: anything else after a \ is a literal char
@@ -224,11 +255,98 @@ impl From<String> for Regex {
                         Regex::CharacterGroup(choices, negated)
                     }
 
-                    // Capture groups
+                    // Capture groups and assertions
                     '(' => {
+                        // TODO (?:x) for non-capturing groups
+                        // TODO (?<name>x) for named groups
+                        // TODO (?flags:x) for flags (i, m, and s)
+                        // TODO (?=x) for positive lookahead
+                        // TODO (?!x) for negative lookahead
+                        // TODO (?<=x) for positive lookbehind
+                        // TODO (?<!x) for negative lookbehind
+
+                        enum Mode {
+                            Default,
+                            NonCapturing,
+                            Flags(bool, bool, bool),
+                            Assertion(AssertionType),
+                        }
+
+                        let mut mode = Mode::Default;
+
+                        if let Some('?') = input.first() {
+                            // Second character will determine the mode
+                            // Note for all the input[N..], it's N-1 because we'll consume one later
+                            match input.iter().nth(1) {
+                                Some(':') => {
+                                    mode = Mode::NonCapturing;
+                                    input = &input[1..];
+                                }
+                                Some('=') => {
+                                    mode = Mode::Assertion(AssertionType::PositiveLookahead);
+                                    input = &input[1..];
+                                }
+                                Some('!') => {
+                                    mode = Mode::Assertion(AssertionType::NegativeLookahead);
+                                    input = &input[1..];
+                                }
+                                Some(c) if c.is_ascii_alphabetic() => {
+                                    // Flags
+                                    let mut i = false;
+                                    let mut m = false;
+                                    let mut s = false;
+                                    let mut char_count = 0;
+
+                                    while let Some(&c) = input.iter().nth(char_count + 1) {
+                                        match c {
+                                            'i' => i = true,
+                                            'm' => m = true,
+                                            's' => s = true,
+                                            ':' => break,
+                                            _ => {
+                                                panic!("Invalid flags, expected :, got {}", c);
+                                            }
+                                        }
+                                        char_count += 1;
+                                    }
+
+                                    mode = Mode::Flags(i, m, s);
+                                    input = &input[char_count..];
+                                }
+                                Some('<') => {
+                                    // Lookbehind
+                                    if let Some('=') = input.iter().nth(2) {
+                                        mode = Mode::Assertion(AssertionType::PositiveLookbehind);
+                                        input = &input[2..];
+                                    } else if let Some('!') = input.iter().nth(2) {
+                                        mode = Mode::Assertion(AssertionType::NegativeLookbehind);
+                                        input = &input[2..];
+                                    } else {
+                                        panic!("Invalid lookbehind assertion, expected only ?<= or ?<!");
+                                    }
+                                }
+                                _ => {
+                                    panic!("Invalid group assertion, there must be at least one character after the ?");
+                                }
+                            }
+
+                            // Skip the ?
+                            input = &input[1..];
+                        }
+
                         let (group, remaining) = read_until(input, Some(')'));
                         input = remaining;
-                        Regex::CapturingGroup(Box::new(group))
+
+                        match mode {
+                            Mode::Default => Regex::CapturingGroup(Box::new(group)),
+                            Mode::NonCapturing => group,
+                            Mode::Flags(_i, _m, _s) => {
+                                unimplemented!("Flags are not supported (yet!)");
+                            }
+                            Mode::Assertion(assertion) => {
+                                Regex::Assertion(assertion, Box::new(group))
+                            }
+                        }
                     }
                     ')' => {
                         // This should have been consumed by the parent group
@@ -319,45 +437,51 @@ mod tests {
 
     // Basic tests for single characters
     test_parse!(
-        parse_single_char,
+        single_char,
         "a",
         Regex::Sequence(vec![Regex::Char(CharType::Single('a'))])
     );
 
     test_parse!(
-        parse_single_char_any,
+        single_char_any,
         ".",
         Regex::Sequence(vec![Regex::Char(CharType::Any)])
     );
 
     // Test character classes
     test_parse!(
-        parse_char_class_digit,
+        char_class_digit,
         "\\d",
-        Regex::Sequence(vec![Regex::CharacterGroup(vec![CharType::Range('0', '9')], false)])
+        Regex::Sequence(vec![Regex::CharacterGroup(
+            vec![CharType::Range('0', '9')],
+            false
+        )])
     );
 
     test_parse!(
-        parse_char_class_not_digit,
+        char_class_not_digit,
         "\\D",
-        Regex::Sequence(vec![Regex::CharacterGroup(vec![CharType::Range('0', '9')], true)])
+        Regex::Sequence(vec![Regex::CharacterGroup(
+            vec![CharType::Range('0', '9')],
+            true
+        )])
     );
 
     // Test escape sequences
     test_parse!(
-        parse_escape_newline,
+        escape_newline,
         "\\n",
         Regex::Sequence(vec![Regex::Char(CharType::Single('\n'))])
     );
 
     test_parse!(
-        parse_escape_carriage_return,
+        escape_carriage_return,
         "\\r",
         Regex::Sequence(vec![Regex::Char(CharType::Single('\r'))])
     );
 
     test_parse!(
-        parse_caret_notation,
+        caret_notation,
         "\\cM\\cJ",
         Regex::Sequence(vec![
             Regex::Char(CharType::Single('\r')),
@@ -366,26 +490,26 @@ mod tests {
     );
 
     test_parse!(
-        parse_hex_escape,
+        hex_escape,
         "\\h41",
         Regex::Sequence(vec![Regex::Char(CharType::Single('A'))])
     );
 
     test_parse!(
-        parse_unicode_escape,
+        unicode_escape,
         "\\u0041",
         Regex::Sequence(vec![Regex::Char(CharType::Single('A'))])
     );
 
     test_parse!(
-        parse_higher_unicode,
+        higher_unicode,
         "\\u2603",
         Regex::Sequence(vec![Regex::Char(CharType::Single('☃'))])
     );
 
     // Tests for character groups
     test_parse!(
-        parse_char_group,
+        char_group,
         "[a-z]",
         Regex::Sequence(vec![Regex::CharacterGroup(
             vec![CharType::Range('a', 'z')],
@@ -394,7 +518,7 @@ mod tests {
     );
 
     test_parse!(
-        parse_char_group_multiple,
+        char_group_multiple,
         "[a-z0-9]",
         Regex::Sequence(vec![Regex::CharacterGroup(
             vec![CharType::Range('a', 'z'), CharType::Range('0', '9')],
@@ -403,7 +527,7 @@ mod tests {
     );
 
     test_parse!(
-        parse_char_group_literal_dash,
+        char_group_literal_dash,
         "[-]",
         Regex::Sequence(vec![Regex::CharacterGroup(
             vec![CharType::Single('-')],
@@ -412,7 +536,7 @@ mod tests {
     );
 
     test_parse!(
-        parse_char_group_literal_dash_after,
+        char_group_literal_dash_after,
         "[a-]",
         Regex::Sequence(vec![Regex::CharacterGroup(
             vec![CharType::Single('a'), CharType::Single('-')],
@@ -421,11 +545,40 @@ mod tests {
     );
 
     test_parse!(
-        parse_char_group_literal_dash_after_range,
+        char_group_literal_dash_after_range,
         "[a-z-]",
         Regex::Sequence(vec![Regex::CharacterGroup(
             vec![CharType::Range('a', 'z'), CharType::Single('-')],
             false
         )])
+    );
+
+    // Assertions
+    test_parse!(
+        positive_lookahead,
+        "a(?=b)",
+        Regex::Sequence(vec![
+            Regex::Char(CharType::Single('a')),
+            Regex::Assertion(
+                AssertionType::PositiveLookahead,
+                Box::new(
+                    Regex::Sequence(vec![Regex::Char(CharType::Single('b'))])
+                )
+            ),
+        ])
+    );
+
+    test_parse!(
+        negative_lookahead,
+        "a(?!bat)",
+        Regex::Sequence(vec![
+            Regex::Char(CharType::Single('a')),
+            Regex::Assertion(
+                AssertionType::NegativeLookahead,
+                Box::new(
+                    Regex::Sequence(vec![Regex::Char(CharType::Single('b')), Regex::Char(CharType::Single('a')), Regex::Char(CharType::Single('t'))])
+                )
+            ),
+        ])
     );
 }

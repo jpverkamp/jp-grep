@@ -3,9 +3,9 @@ use std::io::BufRead;
 use clap::Parser;
 use types::Regex;
 
-mod types;
-mod parser;
 mod matcher;
+mod parser;
+mod types;
 
 /// A custom grep implementation
 #[derive(Parser, Debug)]
@@ -37,4 +37,3 @@ fn main() {
 
     std::process::exit(if matches > 0 { 0 } else { 1 });
 }
-

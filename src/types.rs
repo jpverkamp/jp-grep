@@ -10,6 +10,8 @@ pub(crate) enum Regex {
     // A capturing group used for backreferences
     CapturingGroup(Box<Regex>),
     Backref(usize),
+    // Assertions
+    Assertion(AssertionType, Box<Regex>),
     // Repeat a pattern (e.g. +, *, ?)
     Repeated(RepeatType, Box<Regex>),
     // Anchors for teh start and end of a line
@@ -32,4 +34,12 @@ pub(crate) enum RepeatType {
     OneOrMore,
     ZeroOrMore,
     ZeroOrOne,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AssertionType {
+    PositiveLookahead,
+    NegativeLookahead,
+    PositiveLookbehind,
+    NegativeLookbehind,
 }
