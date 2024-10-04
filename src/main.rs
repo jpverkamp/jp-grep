@@ -20,10 +20,14 @@ fn main() {
     env_logger::init();
 
     let args = Args::parse();
-    let regex = match Regex::try_from(args.extended_regexp) {
+    let regex = match Regex::try_from(args.extended_regexp.clone()) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("Error parsing regex: {e}");
+            eprintln!("Error parsing regex: {error}\n| {regex}\n| {spacing}^", 
+                regex = args.extended_regexp,
+                spacing = " ".repeat(e.position),
+                error = e.error
+            );
             std::process::exit(1);
         }
     };

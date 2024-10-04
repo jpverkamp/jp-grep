@@ -2,6 +2,7 @@ use crate::types::{AssertionType, CharType, Regex, RepeatType};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ParserError {
+    RemainingInput,
     UnexpectedEnd,
     InvalidCharacter(char, &'static str),
     InvalidUnicodeCodePoint(u32),
@@ -11,6 +12,7 @@ pub(crate) enum ParserError {
 impl std::fmt::Display for ParserError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            ParserError::RemainingInput => write!(f, "Unexpected input after parsing"),
             ParserError::UnexpectedEnd => write!(f, "Unexpected end of input"),
             ParserError::InvalidCharacter(c, expected) => {
                 write!(f, "Invalid character '{}', expected {}", c, expected)
@@ -25,12 +27,28 @@ impl std::fmt::Display for ParserError {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ParserErrorWithPosition {
+    pub position: usize,
+    pub error: ParserError,
+}
+
 impl TryFrom<String> for Regex {
-    type Error = ParserError;
+    type Error = ParserErrorWithPosition;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
+        let mut position = 0;
+
+        macro_rules! advance {
+            ($input:ident, $position:ident + $count:expr) => {
+                *$position += $count;
+                $input = &$input[$count..];
+            };
+        }
+
         // Read until the 'until' char, or end of string if None
         fn read_until<'a>(
+            position: &mut usize,
             input: &'a [char],
             until: Option<char>,
         ) -> Result<(Regex, &'a [char]), ParserError> {
@@ -38,8 +56,16 @@ impl TryFrom<String> for Regex {
             let mut input = input;
 
             // Read until end of input
-            while let Some(&c) = input.first() {
-                input = &input[1..];
+            loop {
+                let c = match input.first() {
+                    Some(&c) => c,
+                    None => if until.is_some() {
+                        return Err(ParserError::UnexpectedEnd);
+                    } else {
+                        break;
+                    },
+                };
+                advance!(input, position + 1);
 
                 // Break if we have and hit the until character
                 if until == Some(c) {
@@ -129,7 +155,7 @@ impl TryFrom<String> for Regex {
 
                             // Caret notation https://en.wikipedia.org/wiki/Caret_notation
                             Some('c') => {
-                                input = &input[1..]; // Drop the c
+                                advance!(input, position + 1); // Drop the c
                                 let c = match input.first() {
                                     Some(&c) => c,
                                     None => return Err(ParserError::UnexpectedEnd),
@@ -164,6 +190,7 @@ impl TryFrom<String> for Regex {
 
                                     code_point = code_point * 16
                                         + c.to_digit(16).ok_or_else(|| {
+                                            advance!(input, position + 1);
                                             ParserError::InvalidCharacter(c, "hex digit")
                                         })?;
                                 }
@@ -200,7 +227,7 @@ impl TryFrom<String> for Regex {
                             // Pattern may not end with a single trailing \
                             None => return Err(ParserError::UnexpectedEnd),
                         };
-                        input = &input[1..];
+                        advance!(input, position + 1);
                         group
                     }
 
@@ -208,7 +235,7 @@ impl TryFrom<String> for Regex {
                     '[' => {
                         // Handle negation
                         let negated = if let Some('^') = input.first() {
-                            input = &input[1..];
+                            advance!(input, position + 1);
                             true
                         } else {
                             false
@@ -217,12 +244,26 @@ impl TryFrom<String> for Regex {
                         let mut choices = vec![];
                         let mut previous = None;
 
-                        while let Some(&c) = input.first() {
-                            input = &input[1..];
+                        loop {
+                            let c = match input.first() {
+                                Some(&c) => c,
+                                None => return Err(ParserError::UnexpectedEnd),
+                            };
+                            advance!(input, position + 1);
 
                             match c {
                                 // End of character group
-                                ']' => break,
+                                ']' => {
+                                    if choices.is_empty() {
+                                        *position -= 1;
+                                        return Err(ParserError::InvalidCharacter(
+                                            ']',
+                                            "non-empty character class",
+                                        ));
+                                    }
+
+                                    break;
+                                },
                                 // Escaped characters, always treat as literal
                                 // TODO: [\b] is a backspace character apparently
                                 '\\' => {
@@ -230,7 +271,7 @@ impl TryFrom<String> for Regex {
                                         Some(&c) => c,
                                         None => return Err(ParserError::UnexpectedEnd),
                                     };
-                                    input = &input[1..];
+                                    advance!(input, position + 1);
 
                                     choices.push(CharType::Single(c));
                                     previous = Some(c);
@@ -242,7 +283,7 @@ impl TryFrom<String> for Regex {
                                         // End of group, treat as a literal and exit the character group
                                         Some(']') => {
                                             choices.push(CharType::Single(c));
-                                            input = &input[1..];
+                                            advance!(input, position + 1);
                                             break;
                                         }
                                         // Anything else tries to make a range
@@ -259,7 +300,7 @@ impl TryFrom<String> for Regex {
 
                                             choices.push(CharType::Range(start, end));
                                             previous = None;
-                                            input = &input[1..];
+                                            advance!(input, position + 1);
                                             continue;
                                         }
                                         // Rand out of characters while parsing a [...]
@@ -296,10 +337,10 @@ impl TryFrom<String> for Regex {
                                     // Lookbehind
                                     if let Some('=') = input.iter().nth(2) {
                                         mode = Mode::Assertion(AssertionType::PositiveLookbehind);
-                                        input = &input[2..];
+                                        advance!(input, position + 2);
                                     } else if let Some('!') = input.iter().nth(2) {
                                         mode = Mode::Assertion(AssertionType::NegativeLookbehind);
-                                        input = &input[2..];
+                                        advance!(input, position + 2);
                                     } else {
                                         // Named group
                                         let mut name = String::new();
@@ -315,15 +356,15 @@ impl TryFrom<String> for Regex {
                                 }
                                 Some(':') => {
                                     mode = Mode::NonCapturing;
-                                    input = &input[1..];
+                                    advance!(input, position + 1);
                                 }
                                 Some('=') => {
                                     mode = Mode::Assertion(AssertionType::PositiveLookahead);
-                                    input = &input[1..];
+                                    advance!(input, position + 1);
                                 }
                                 Some('!') => {
                                     mode = Mode::Assertion(AssertionType::NegativeLookahead);
-                                    input = &input[1..];
+                                    advance!(input, position + 1);
                                 }
                                 Some(c) if c.is_ascii_alphabetic() => {
                                     // Flags
@@ -355,10 +396,10 @@ impl TryFrom<String> for Regex {
                             }
 
                             // Skip the ?
-                            input = &input[1..];
+                            advance!(input, position + 1);
                         }
 
-                        let (group, remaining) = read_until(input, Some(')'))?;
+                        let (group, remaining) = read_until(position, input, Some(')'))?;
                         input = remaining;
 
                         match mode {
@@ -396,15 +437,15 @@ impl TryFrom<String> for Regex {
                 // Check for modifiers (+*)
                 let node = match input.first() {
                     Some('+') => {
-                        input = &input[1..];
+                        advance!(input, position + 1);
                         Regex::Repeated(RepeatType::OneOrMore, Box::new(node))
                     }
                     Some('*') => {
-                        input = &input[1..];
+                        advance!(input, position + 1);
                         Regex::Repeated(RepeatType::ZeroOrMore, Box::new(node))
                     }
                     Some('?') => {
-                        input = &input[1..];
+                        advance!(input, position + 1);
                         Regex::Repeated(RepeatType::ZeroOrOne, Box::new(node))
                     }
                     _ => node,
@@ -435,14 +476,21 @@ impl TryFrom<String> for Regex {
         }
 
         let chars = value.chars().collect::<Vec<_>>();
-        let (result, remaining_chars) = read_until(&chars, None)?;
-        assert_eq!(
-            remaining_chars.len(),
-            0,
-            "Remaining input: {:?}",
-            remaining_chars
-        );
-        Ok(result)
+        match read_until(&mut position, &chars, None) {
+            Ok((result, [])) => {
+                return Ok(result)
+            },
+            Ok((_, remaining_chars)) => {
+                Err(ParserErrorWithPosition {
+                    position: position - remaining_chars.len(),
+                    error: ParserError::RemainingInput,
+                })
+            }
+            Err(e) => Err(ParserErrorWithPosition {
+                position,
+                error: e,
+            }),
+        }
     }
 }
 
