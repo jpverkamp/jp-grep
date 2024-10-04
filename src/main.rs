@@ -20,7 +20,13 @@ fn main() {
     env_logger::init();
 
     let args = Args::parse();
-    let regex = Regex::from(args.extended_regexp);
+    let regex = match Regex::try_from(args.extended_regexp) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Error parsing regex: {e:?}");
+            std::process::exit(1);
+        }
+    };
 
     let stdin = std::io::stdin();
     let mut matches = 0;

@@ -1,9 +1,22 @@
 use crate::types::{AssertionType, CharType, Regex, RepeatType};
 
-impl From<String> for Regex {
-    fn from(value: String) -> Self {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ParserError {
+    UnexpectedEnd,
+    InvalidCharacter(char, &'static str),
+    InvalidUnicodeCodePoint(u32),
+    InvalidRange(char, char),
+}
+
+impl TryFrom<String> for Regex {
+    type Error = ParserError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
         // Read until the 'until' char, or end of string if None
-        fn read_until<'a>(input: &'a [char], until: Option<char>) -> (Regex, &'a [char]) {
+        fn read_until<'a>(
+            input: &'a [char],
+            until: Option<char>,
+        ) -> Result<(Regex, &'a [char]), ParserError> {
             let mut sequence = vec![];
             let mut input = input;
 
@@ -102,12 +115,15 @@ impl From<String> for Regex {
                                 input = &input[1..]; // Drop the c
                                 let c = match input.first() {
                                     Some(&c) => c,
-                                    None => {
-                                        panic!("Unexpected end of input after \\c");
-                                    }
+                                    None => return Err(ParserError::UnexpectedEnd),
                                 };
 
-                                assert!(c.is_ascii_uppercase(), "Invalid caret notation: \\c{}", c);
+                                if !c.is_ascii_uppercase() {
+                                    return Err(ParserError::InvalidCharacter(
+                                        c,
+                                        "ascii uppercase",
+                                    ));
+                                }
 
                                 let code_point = (c as u8) - b'A' + 1;
                                 Regex::Char(CharType::Single(code_point as char))
@@ -126,27 +142,22 @@ impl From<String> for Regex {
                                 for i in 0..length {
                                     let c = match input.iter().nth(i + 1) {
                                         Some(&c) => c,
-                                        None => {
-                                            panic!(
-                                                "Not enough characters in {}",
-                                                escaped_c.unwrap()
-                                            );
-                                        }
+                                        None => return Err(ParserError::UnexpectedEnd),
                                     };
 
                                     code_point = code_point * 16
-                                        + c.to_digit(16).expect(
-                                            format!("Invalid hex digit '{c}' in \\u sequence")
-                                                .as_str(),
-                                        );
+                                        + c.to_digit(16).ok_or_else(|| {
+                                            ParserError::InvalidCharacter(c, "hex digit")
+                                        })?;
                                 }
 
                                 // Drop the characters we just read; the u/h will be removed at the end of this match
                                 input = &input[length..];
 
-                                Regex::Char(CharType::Single(char::from_u32(code_point).expect(
-                                    format!("Invalid unicode code point: {code_point}").as_str(),
-                                )))
+                                Regex::Char(CharType::Single(
+                                    char::from_u32(code_point)
+                                        .ok_or(ParserError::InvalidUnicodeCodePoint(code_point))?,
+                                ))
                             }
 
                             // TODO: Unicode properties
@@ -170,9 +181,7 @@ impl From<String> for Regex {
                             Some(&c) => Regex::Char(CharType::Single(c)),
 
                             // Pattern may not end with a single trailing \
-                            None => {
-                                panic!("Unexpected end of input after \\");
-                            }
+                            None => return Err(ParserError::UnexpectedEnd),
                         };
                         input = &input[1..];
                         group
@@ -202,9 +211,7 @@ impl From<String> for Regex {
                                 '\\' => {
                                     let c = match input.first() {
                                         Some(&c) => c,
-                                        None => {
-                                            panic!("Unexpected end of input while parsing an escape character in a character group");
-                                        }
+                                        None => return Err(ParserError::UnexpectedEnd),
                                     };
                                     input = &input[1..];
 
@@ -226,7 +233,7 @@ impl From<String> for Regex {
                                             // Ranges must be start <= end (a-a is technically valid)
                                             let start = previous.unwrap();
                                             if start > end {
-                                                panic!("Invalid range: {}-{}", start, end);
+                                                return Err(ParserError::InvalidRange(start, end));
                                             }
 
                                             // Remove the previously pushed single character
@@ -239,9 +246,7 @@ impl From<String> for Regex {
                                             continue;
                                         }
                                         // Rand out of characters while parsing a [...]
-                                        None => {
-                                            panic!("Unexpected end of input while parsing character group");
-                                        }
+                                        None => return Err(ParserError::UnexpectedEnd),
                                     };
                                 }
                                 // Anything else is a literal character
@@ -317,7 +322,10 @@ impl From<String> for Regex {
                                             's' => s = true,
                                             ':' => break,
                                             _ => {
-                                                panic!("Invalid flags, expected :, got {}", c);
+                                                return Err(ParserError::InvalidCharacter(
+                                                    c,
+                                                    "i, m, or s",
+                                                ))
                                             }
                                         }
                                         char_count += 1;
@@ -326,16 +334,14 @@ impl From<String> for Regex {
                                     mode = Mode::Flags(i, m, s);
                                     input = &input[char_count..];
                                 }
-                                _ => {
-                                    panic!("Invalid group assertion, there must be at least one character after the ?");
-                                }
+                                _ => return Err(ParserError::UnexpectedEnd),
                             }
 
                             // Skip the ?
                             input = &input[1..];
                         }
 
-                        let (group, remaining) = read_until(input, Some(')'));
+                        let (group, remaining) = read_until(input, Some(')'))?;
                         input = remaining;
 
                         match mode {
@@ -405,21 +411,21 @@ impl From<String> for Regex {
                 }
 
                 choices.push(Regex::Sequence(current_choice));
-                return (Regex::Choice(choices), input);
+                return Ok((Regex::Choice(choices), input));
             }
 
-            (Regex::Sequence(sequence), input)
+            Ok((Regex::Sequence(sequence), input))
         }
 
         let chars = value.chars().collect::<Vec<_>>();
-        let (result, remaining_chars) = read_until(&chars, None);
+        let (result, remaining_chars) = read_until(&chars, None)?;
         assert_eq!(
             remaining_chars.len(),
             0,
             "Remaining input: {:?}",
             remaining_chars
         );
-        result
+        Ok(result)
     }
 }
 
@@ -431,8 +437,10 @@ mod tests {
         ($name:ident, $input:expr, $expected:expr) => {
             #[test]
             fn $name() {
-                let regex = Regex::from($input.to_string());
-                assert_eq!(regex, $expected);
+                match Regex::try_from($input.to_string()) {
+                    Ok(regex) => assert_eq!(regex, $expected),
+                    Err(e) => panic!("Failed to parse '{}': {:?}", $input, e),
+                }
             }
         };
     }
@@ -563,9 +571,7 @@ mod tests {
             Regex::Char(CharType::Single('a')),
             Regex::Assertion(
                 AssertionType::PositiveLookahead,
-                Box::new(
-                    Regex::Sequence(vec![Regex::Char(CharType::Single('b'))])
-                )
+                Box::new(Regex::Sequence(vec![Regex::Char(CharType::Single('b'))]))
             ),
         ])
     );
@@ -577,9 +583,11 @@ mod tests {
             Regex::Char(CharType::Single('a')),
             Regex::Assertion(
                 AssertionType::NegativeLookahead,
-                Box::new(
-                    Regex::Sequence(vec![Regex::Char(CharType::Single('b')), Regex::Char(CharType::Single('a')), Regex::Char(CharType::Single('t'))])
-                )
+                Box::new(Regex::Sequence(vec![
+                    Regex::Char(CharType::Single('b')),
+                    Regex::Char(CharType::Single('a')),
+                    Regex::Char(CharType::Single('t'))
+                ]))
             ),
         ])
     );
@@ -589,9 +597,14 @@ mod tests {
         "a(?<name>foo)",
         Regex::Sequence(vec![
             Regex::Char(CharType::Single('a')),
-            Regex::CapturingGroup(Box::new(
-                Regex::Sequence(vec![Regex::Char(CharType::Single('f')), Regex::Char(CharType::Single('o')), Regex::Char(CharType::Single('o'))])
-            ), Some("name".to_string()))
+            Regex::CapturingGroup(
+                Box::new(Regex::Sequence(vec![
+                    Regex::Char(CharType::Single('f')),
+                    Regex::Char(CharType::Single('o')),
+                    Regex::Char(CharType::Single('o'))
+                ])),
+                Some("name".to_string())
+            )
         ])
     );
 }

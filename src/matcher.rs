@@ -267,7 +267,12 @@ mod tests {
             #[test]
             fn $name() {
                 // TODO: Test against system grep to verify expected is actually expected
-                let regex = Regex::from($regex.to_string());
+                let regex = match Regex::try_from($regex.to_string()) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        panic!("Error parsing regex: {:?}", e);
+                    }
+                };
                 assert_eq!(regex.matches($input), $expected);
             }
         };
