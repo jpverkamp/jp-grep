@@ -36,9 +36,9 @@ impl Regex {
             Regex::Assertion(_, _) => true,
             Regex::Start => true,
             Regex::End => true,
-            Regex::Repeated(RepeatType::OneOrMore, node) => node.allow_none(),
-            Regex::Repeated(RepeatType::ZeroOrMore, _) => true,
-            Regex::Repeated(RepeatType::ZeroOrOne, _) => true,
+            Regex::Repeated(RepeatType::OneOrMore, _, node) => node.allow_none(),
+            Regex::Repeated(RepeatType::ZeroOrMore, _, _) => true,
+            Regex::Repeated(RepeatType::ZeroOrOne, _, _) => true,
             Regex::Backref(_) => true, // The capture group may be empty
             Regex::ChoicePlaceholder => unreachable!("ChoicePlaceholder should have been expanded"),
         }
@@ -116,7 +116,7 @@ impl Regex {
 
             // Multi-match modifiers (?+*)
             // NOTE: These should match the longest group they can and still work
-            Regex::Repeated(mode, node) => {
+            Regex::Repeated(mode, greedy, node) => {
                 match mode {
                     RepeatType::ZeroOrMore => {
                         // Return all possible matches at this level
@@ -136,7 +136,9 @@ impl Regex {
                             }
                         }
 
-                        results.reverse();
+                        if *greedy {
+                            results.reverse();
+                        }
                         return results;
                     }
 
@@ -158,7 +160,9 @@ impl Regex {
                             }
                         }
 
-                        results.reverse();
+                        if *greedy {
+                            results.reverse();
+                        }
                         return results;
                     }
 
@@ -170,7 +174,9 @@ impl Regex {
                         let mut recur = node.match_recur(input, at_start, groups);
                         results.append(&mut recur);
 
-                        results.reverse();
+                        if *greedy {
+                            results.reverse();
+                        }
                         return results;
                     }
                 }
@@ -373,4 +379,8 @@ mod tests {
     test_regex!(negative_repeated_character_group2, r"[^abc]+", "xyz", true);
 
     test_regex!(repeated_longest, r"a+a", "aaa", true);
+
+    test_regex!(lazy_one_or_more, r"a+?", "aaa", true);
+    test_regex!(lazy_zero_or_more, "a*?", "aaa", true);
+    test_regex!(lazy_zero_or_one, "a??", "a", true);
 }

@@ -59,11 +59,13 @@ impl TryFrom<String> for Regex {
             loop {
                 let c = match input.first() {
                     Some(&c) => c,
-                    None => if until.is_some() {
-                        return Err(ParserError::UnexpectedEnd);
-                    } else {
-                        break;
-                    },
+                    None => {
+                        if until.is_some() {
+                            return Err(ParserError::UnexpectedEnd);
+                        } else {
+                            break;
+                        }
+                    }
                 };
                 advance!(input, position + 1);
 
@@ -263,7 +265,7 @@ impl TryFrom<String> for Regex {
                                     }
 
                                     break;
-                                },
+                                }
                                 // Escaped characters, always treat as literal
                                 // TODO: [\b] is a backspace character apparently
                                 '\\' => {
@@ -435,18 +437,30 @@ impl TryFrom<String> for Regex {
                 };
 
                 // Check for modifiers (+*)
-                let node = match input.first() {
-                    Some('+') => {
-                        advance!(input, position + 1);
-                        Regex::Repeated(RepeatType::OneOrMore, Box::new(node))
+                let node = match (input.first(), input.iter().nth(1)) {
+                    (Some('+'), Some('?')) => {
+                        advance!(input, position + 2);
+                        Regex::Repeated(RepeatType::OneOrMore, false, Box::new(node))
                     }
-                    Some('*') => {
+                    (Some('+'), _) => {
                         advance!(input, position + 1);
-                        Regex::Repeated(RepeatType::ZeroOrMore, Box::new(node))
+                        Regex::Repeated(RepeatType::OneOrMore, true, Box::new(node))
                     }
-                    Some('?') => {
+                    (Some('*'), Some('?')) => {
+                        advance!(input, position + 2);
+                        Regex::Repeated(RepeatType::ZeroOrMore, false, Box::new(node))
+                    }
+                    (Some('*'), _) => {
                         advance!(input, position + 1);
-                        Regex::Repeated(RepeatType::ZeroOrOne, Box::new(node))
+                        Regex::Repeated(RepeatType::ZeroOrMore, true, Box::new(node))
+                    }
+                    (Some('?'), Some('?')) => {
+                        advance!(input, position + 2);
+                        Regex::Repeated(RepeatType::ZeroOrOne, false, Box::new(node))
+                    }
+                    (Some('?'), _) => {
+                        advance!(input, position + 1);
+                        Regex::Repeated(RepeatType::ZeroOrOne, true, Box::new(node))
                     }
                     _ => node,
                 };
@@ -477,19 +491,12 @@ impl TryFrom<String> for Regex {
 
         let chars = value.chars().collect::<Vec<_>>();
         match read_until(&mut position, &chars, None) {
-            Ok((result, [])) => {
-                return Ok(result)
-            },
-            Ok((_, remaining_chars)) => {
-                Err(ParserErrorWithPosition {
-                    position: position - remaining_chars.len(),
-                    error: ParserError::RemainingInput,
-                })
-            }
-            Err(e) => Err(ParserErrorWithPosition {
-                position,
-                error: e,
+            Ok((result, [])) => return Ok(result),
+            Ok((_, remaining_chars)) => Err(ParserErrorWithPosition {
+                position: position - remaining_chars.len(),
+                error: ParserError::RemainingInput,
             }),
+            Err(e) => Err(ParserErrorWithPosition { position, error: e }),
         }
     }
 }

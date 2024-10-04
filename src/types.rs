@@ -13,7 +13,8 @@ pub(crate) enum Regex {
     // Assertions
     Assertion(AssertionType, Box<Regex>),
     // Repeat a pattern (e.g. +, *, ?)
-    Repeated(RepeatType, Box<Regex>),
+    // Flag is if the match is greedy
+    Repeated(RepeatType, bool, Box<Regex>),
     // Anchors for teh start and end of a line
     Start,
     End,
