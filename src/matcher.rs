@@ -45,6 +45,7 @@ impl Regex {
             Regex::Repeated(RepeatType::ZeroOrOne, _, _) => true,
             Regex::Backref(_) => true, // The capture group may be empty
             Regex::NamedBackref(_) => true,
+            Regex::ModeChange(_, _, node) => node.allow_none(),
             Regex::ChoicePlaceholder => unreachable!("ChoicePlaceholder should have been expanded"),
         }
     }
@@ -199,7 +200,9 @@ impl Regex {
                 for node in seq {
                     remainings = remainings
                         .into_iter()
-                        .flat_map(|input| node.match_recur(input, seq_at_start, groups, named_groups))
+                        .flat_map(|input| {
+                            node.match_recur(input, seq_at_start, groups, named_groups)
+                        })
                         .collect();
                     seq_at_start = false;
                 }
@@ -270,8 +273,13 @@ impl Regex {
                 } else {
                     unimplemented!("Backreference to group {} that hasn't been captured", name);
                 }
-                
+
                 return vec![];
+            }
+
+            // Change the current flag
+            Regex::ModeChange(to_enable, to_disable, node) => {
+                unimplemented!("ModeChange not implemented (yet!)");
             }
 
             // This should have been expanded by the time we get here
@@ -408,10 +416,5 @@ mod tests {
         false
     );
 
-    test_regex!(
-        named_backref,
-        r"(?<name>abc)\k<name>",
-        "abcabc",
-        true
-    );
+    test_regex!(named_backref, r"(?<name>abc)\k<name>", "abcabc", true);
 }

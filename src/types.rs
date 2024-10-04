@@ -22,6 +22,10 @@ pub(crate) enum Regex {
     // Used for parsing |, will be expanded into a Choice
     Choice(Vec<Regex>),
     ChoicePlaceholder,
+    // Change mode for the child regex
+    // The first flags is which to enable
+    // The second is which to disable
+    ModeChange(Flags, Flags, Box<Regex>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,4 +48,11 @@ pub(crate) enum AssertionType {
     NegativeLookahead,
     PositiveLookbehind,
     NegativeLookbehind,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct Flags {
+    pub case_insensitive: bool,
+    pub multiline: bool,
+    pub dot_matches_newline: bool,
 }

@@ -1,4 +1,4 @@
-use crate::types::{AssertionType, CharType, Regex, RepeatType};
+use crate::types::{AssertionType, CharType, Flags, Regex, RepeatType};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ParserError {
@@ -239,8 +239,8 @@ impl TryFrom<String> for Regex {
                                             '>',
                                             "closing angle bracket",
                                         ));
-                                    }                                
-                                    
+                                    }
+
                                     Regex::NamedBackref(name)
                                 } else {
                                     return Err(ParserError::InvalidCharacter(
@@ -353,7 +353,7 @@ impl TryFrom<String> for Regex {
                             Default,
                             NonCapturing,
                             Named(String),
-                            Flags(bool, bool, bool),
+                            Flags(Flags, Flags),
                             Assertion(AssertionType),
                         }
                         let mut mode = Mode::Default;
@@ -395,18 +395,46 @@ impl TryFrom<String> for Regex {
                                     mode = Mode::Assertion(AssertionType::NegativeLookahead);
                                     advance!(input, position + 1);
                                 }
-                                Some(c) if c.is_ascii_alphabetic() => {
+                                Some(c) if c.is_ascii_alphabetic() || *c == '-' => {
                                     // Flags
-                                    let mut i = false;
-                                    let mut m = false;
-                                    let mut s = false;
+                                    let mut to_enable = Flags::default();
+                                    let mut to_disable = Flags::default();
+                                    let mut reading_disable = false;
                                     let mut char_count = 0;
 
                                     while let Some(&c) = input.iter().nth(char_count + 1) {
                                         match c {
-                                            'i' => i = true,
-                                            'm' => m = true,
-                                            's' => s = true,
+                                            'i' => {
+                                                if reading_disable {
+                                                    to_disable.case_insensitive = true
+                                                } else {
+                                                    to_enable.case_insensitive = true
+                                                }
+                                            }
+                                            'm' => {
+                                                if reading_disable {
+                                                    to_disable.multiline = true
+                                                } else {
+                                                    to_enable.multiline = true
+                                                }
+                                            }
+                                            's' => {
+                                                if reading_disable {
+                                                    to_disable.dot_matches_newline = true
+                                                } else {
+                                                    to_enable.dot_matches_newline = true
+                                                }
+                                            }
+                                            '-' => {
+                                                if reading_disable {
+                                                    return Err(ParserError::InvalidCharacter(
+                                                        c,
+                                                        "not a second -",
+                                                    ));
+                                                } else {
+                                                    reading_disable = true;
+                                                }
+                                            }
                                             ':' => break,
                                             _ => {
                                                 return Err(ParserError::InvalidCharacter(
@@ -418,8 +446,8 @@ impl TryFrom<String> for Regex {
                                         char_count += 1;
                                     }
 
-                                    mode = Mode::Flags(i, m, s);
-                                    input = &input[char_count..];
+                                    mode = Mode::Flags(to_enable, to_disable);
+                                    advance!(input, position + char_count + 1);
                                 }
                                 _ => return Err(ParserError::UnexpectedEnd),
                             }
@@ -435,8 +463,8 @@ impl TryFrom<String> for Regex {
                             Mode::Default => Regex::CapturingGroup(Box::new(group), None),
                             Mode::Named(name) => Regex::CapturingGroup(Box::new(group), Some(name)),
                             Mode::NonCapturing => group,
-                            Mode::Flags(_i, _m, _s) => {
-                                unimplemented!("Flags are not supported (yet!)");
+                            Mode::Flags(to_enable, to_disable) => {
+                                Regex::ModeChange(to_enable, to_disable, Box::new(group))
                             }
                             Mode::Assertion(assertion) => {
                                 Regex::Assertion(assertion, Box::new(group))
@@ -713,6 +741,90 @@ mod tests {
         Regex::Sequence(vec![
             Regex::Char(CharType::Single('a')),
             Regex::NamedBackref("name".to_string())
+        ])
+    );
+
+    test_parse!(
+        group_flags,
+        "a(?i:foo)",
+        Regex::Sequence(vec![
+            Regex::Char(CharType::Single('a')),
+            Regex::ModeChange(
+                Flags {
+                    case_insensitive: true,
+                    ..Flags::default()
+                },
+                Flags::default(),
+                Box::new(Regex::Sequence(vec![
+                    Regex::Char(CharType::Single('f')),
+                    Regex::Char(CharType::Single('o')),
+                    Regex::Char(CharType::Single('o'))
+                ]))
+            )
+        ])
+    );
+
+    test_parse!(
+        group_flags_multiple,
+        "a(?im:foo)",
+        Regex::Sequence(vec![
+            Regex::Char(CharType::Single('a')),
+            Regex::ModeChange(
+                Flags {
+                    case_insensitive: true,
+                    multiline: true,
+                    ..Flags::default()
+                },
+                Flags::default(),
+                Box::new(Regex::Sequence(vec![
+                    Regex::Char(CharType::Single('f')),
+                    Regex::Char(CharType::Single('o')),
+                    Regex::Char(CharType::Single('o'))
+                ]))
+            )
+        ])
+    );
+
+    test_parse!(
+        group_flags_with_disable,
+        "a(?i-m:foo)",
+        Regex::Sequence(vec![
+            Regex::Char(CharType::Single('a')),
+            Regex::ModeChange(
+                Flags {
+                    case_insensitive: true,
+                    ..Flags::default()
+                },
+                Flags {
+                    multiline: true,
+                    ..Flags::default()
+                },
+                Box::new(Regex::Sequence(vec![
+                    Regex::Char(CharType::Single('f')),
+                    Regex::Char(CharType::Single('o')),
+                    Regex::Char(CharType::Single('o'))
+                ]))
+            )
+        ])
+    );
+
+    test_parse!(
+        group_flags_only_disable,
+        "a(?-m:foo)",
+        Regex::Sequence(vec![
+            Regex::Char(CharType::Single('a')),
+            Regex::ModeChange(
+                Flags::default(),
+                Flags {
+                    multiline: true,
+                    ..Flags::default()
+                },
+                Box::new(Regex::Sequence(vec![
+                    Regex::Char(CharType::Single('f')),
+                    Regex::Char(CharType::Single('o')),
+                    Regex::Char(CharType::Single('o'))
+                ]))
+            )
         ])
     );
 }
