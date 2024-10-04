@@ -383,4 +383,12 @@ mod tests {
     test_regex!(lazy_one_or_more, r"a+?", "aaa", true);
     test_regex!(lazy_zero_or_more, "a*?", "aaa", true);
     test_regex!(lazy_zero_or_one, "a??", "a", true);
+
+    test_regex!(non_capturing_groups, r"(?:a|b)(c|d)\1", "acc", true);
+    test_regex!(
+        non_capturing_groups_non_match,
+        r"(?:a|b)(c|d)\1",
+        "acd",
+        false
+    );
 }
