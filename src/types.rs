@@ -10,6 +10,7 @@ pub(crate) enum Regex {
     // A capturing group used for backreferences
     CapturingGroup(Box<Regex>, Option<String>),
     Backref(usize),
+    NamedBackref(String),
     // Assertions
     Assertion(AssertionType, Box<Regex>),
     // Repeat a pattern (e.g. +, *, ?)

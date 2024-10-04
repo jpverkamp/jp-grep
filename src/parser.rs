@@ -217,10 +217,37 @@ impl TryFrom<String> for Regex {
                                 Regex::Backref(index)
                             }
 
-                            // TODO: Named backreferences
-                            // Format is \k<...>
+                            // Named backreferences, \k<...>
                             Some('k') => {
-                                unimplemented!("Named backreferences are not supported (yet!)");
+                                advance!(input, position + 1);
+                                if let Some('<') = input.first() {
+                                    let mut name = String::new();
+
+                                    while let Some(&c) = input.iter().nth(name.len() + 1) {
+                                        if c == '>' {
+                                            break;
+                                        } else {
+                                            name.push(c);
+                                        }
+                                    }
+                                    advance!(input, position + name.len() + 1);
+
+                                    if let Some('>') = input.first() {
+                                        // Advance 1 is handled later
+                                    } else {
+                                        return Err(ParserError::InvalidCharacter(
+                                            '>',
+                                            "closing angle bracket",
+                                        ));
+                                    }                                
+                                    
+                                    Regex::NamedBackref(name)
+                                } else {
+                                    return Err(ParserError::InvalidCharacter(
+                                        'k',
+                                        "opening angle bracket",
+                                    ));
+                                }
                             }
 
                             // Escaped characters: anything else after a \ is a literal char
@@ -677,6 +704,15 @@ mod tests {
                 ])),
                 Some("name".to_string())
             )
+        ])
+    );
+
+    test_parse!(
+        named_backref,
+        "a\\k<name>",
+        Regex::Sequence(vec![
+            Regex::Char(CharType::Single('a')),
+            Regex::NamedBackref("name".to_string())
         ])
     );
 }

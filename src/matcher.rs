@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::types::{CharType, Regex, RepeatType};
 
 impl Regex {
@@ -15,7 +17,9 @@ impl Regex {
             );
 
             let mut groups = vec![];
-            let results = self.match_recur(&chars[i..], i == 0, &mut groups);
+            let mut named_groups = HashMap::new();
+
+            let results = self.match_recur(&chars[i..], i == 0, &mut groups, &mut named_groups);
 
             if !results.is_empty() {
                 return true;
@@ -40,6 +44,7 @@ impl Regex {
             Regex::Repeated(RepeatType::ZeroOrMore, _, _) => true,
             Regex::Repeated(RepeatType::ZeroOrOne, _, _) => true,
             Regex::Backref(_) => true, // The capture group may be empty
+            Regex::NamedBackref(_) => true,
             Regex::ChoicePlaceholder => unreachable!("ChoicePlaceholder should have been expanded"),
         }
     }
@@ -49,6 +54,7 @@ impl Regex {
         input: &'a [char],
         at_start: bool,
         groups: &mut Vec<Option<&'a [char]>>,
+        named_groups: &mut HashMap<String, &'a [char]>,
     ) -> Vec<&'a [char]> {
         log::debug!(
             "match_recur({self:?}, {}, {at_start})",
@@ -125,7 +131,7 @@ impl Regex {
                         let mut remaining = input;
 
                         loop {
-                            let recur = node.match_recur(remaining, at_start, groups);
+                            let recur = node.match_recur(remaining, at_start, groups, named_groups);
                             if recur.is_empty() {
                                 break;
                             }
@@ -149,7 +155,7 @@ impl Regex {
                         let mut remaining = input;
 
                         loop {
-                            let recur = node.match_recur(remaining, at_start, groups);
+                            let recur = node.match_recur(remaining, at_start, groups, named_groups);
                             if recur.is_empty() {
                                 break;
                             }
@@ -171,7 +177,7 @@ impl Regex {
                         let mut results = vec![input];
 
                         // If one match
-                        let mut recur = node.match_recur(input, at_start, groups);
+                        let mut recur = node.match_recur(input, at_start, groups, named_groups);
                         results.append(&mut recur);
 
                         if *greedy {
@@ -193,7 +199,7 @@ impl Regex {
                 for node in seq {
                     remainings = remainings
                         .into_iter()
-                        .flat_map(|input| node.match_recur(input, seq_at_start, groups))
+                        .flat_map(|input| node.match_recur(input, seq_at_start, groups, named_groups))
                         .collect();
                     seq_at_start = false;
                 }
@@ -207,7 +213,7 @@ impl Regex {
                 let mut results = vec![];
 
                 for node in seq {
-                    let mut recur = node.match_recur(input, at_start, groups);
+                    let mut recur = node.match_recur(input, at_start, groups, named_groups);
                     if !recur.is_empty() {
                         results.append(&mut recur);
                     }
@@ -218,21 +224,20 @@ impl Regex {
 
             // Capturing groups wrap another node and then store what was captured
             Regex::CapturingGroup(node, name) => {
-                assert!(
-                    name.is_none(),
-                    "Named capturing groups not implemented (yet!)"
-                );
-
                 // Add a placeholder to get order correct
                 let index = groups.len();
                 groups.push(None);
 
-                let recur = node.match_recur(input, at_start, groups);
+                let recur = node.match_recur(input, at_start, groups, named_groups);
                 if recur.is_empty() {
                     groups.remove(index);
                     return vec![];
                 } else {
                     groups[index] = Some(&input[..(input.len() - recur[0].len())]);
+                    if let Some(name) = name {
+                        named_groups.insert(name.clone(), groups[index].unwrap());
+                    }
+
                     return recur;
                 }
             }
@@ -255,6 +260,17 @@ impl Regex {
                 if input.starts_with(captured) {
                     return vec![&input[captured.len()..]];
                 }
+                return vec![];
+            }
+            Regex::NamedBackref(name) => {
+                if let Some(captured) = named_groups.get(name) {
+                    if input.starts_with(captured) {
+                        return vec![&input[captured.len()..]];
+                    }
+                } else {
+                    unimplemented!("Backreference to group {} that hasn't been captured", name);
+                }
+                
                 return vec![];
             }
 
@@ -390,5 +406,12 @@ mod tests {
         r"(?:a|b)(c|d)\1",
         "acd",
         false
+    );
+
+    test_regex!(
+        named_backref,
+        r"(?<name>abc)\k<name>",
+        "abcabc",
+        true
     );
 }
