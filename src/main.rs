@@ -23,7 +23,7 @@ fn main() {
     let regex = match Regex::try_from(args.extended_regexp) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("Error parsing regex: {e:?}");
+            eprintln!("Error parsing regex: {e}");
             std::process::exit(1);
         }
     };

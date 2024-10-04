@@ -8,6 +8,23 @@ pub(crate) enum ParserError {
     InvalidRange(char, char),
 }
 
+impl std::fmt::Display for ParserError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ParserError::UnexpectedEnd => write!(f, "Unexpected end of input"),
+            ParserError::InvalidCharacter(c, expected) => {
+                write!(f, "Invalid character '{}', expected {}", c, expected)
+            }
+            ParserError::InvalidUnicodeCodePoint(code_point) => {
+                write!(f, "Invalid unicode code point: {}", code_point)
+            }
+            ParserError::InvalidRange(start, end) => {
+                write!(f, "Invalid range: {}-{}", start, end)
+            }
+        }
+    }
+}
+
 impl TryFrom<String> for Regex {
     type Error = ParserError;
 
