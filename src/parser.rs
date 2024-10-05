@@ -496,6 +496,7 @@ impl TryFrom<String> for Regex {
                 };
 
                 // Check for modifiers (+*)
+                // TODO: These could now all be combined into a single Repeated(min, max, greedy, regex) above
                 let node = match (input.first(), input.iter().nth(1)) {
                     (Some('+'), Some('?')) => {
                         advance!(input, position + 2);

@@ -35,6 +35,7 @@ pub(crate) enum CharType {
     Range(char, char),
 }
 
+// TODO: These could now all be combined into a single Repeated(min, max, greedy, regex) above
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RepeatType {
     OneOrMore,

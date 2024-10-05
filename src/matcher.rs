@@ -150,7 +150,7 @@ impl Regex {
             }
 
             // Multi-match modifiers (?+*)
-            // NOTE: These should match the longest group they can and still work
+            // TODO: These could now all be combined into a single Repeated(min, max, greedy, regex)
             Regex::Repeated(mode, greedy, node) => {
                 match mode {
                     RepeatType::Bound(min, max) => {
