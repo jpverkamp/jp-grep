@@ -1,7 +1,7 @@
 use std::{
     collections::VecDeque,
     fs::{self, File},
-    io::{BufRead, BufReader, StdinLock},
+    io::{stdin, BufRead, BufReader},
     path::PathBuf,
 };
 
@@ -225,30 +225,38 @@ fn main() {
 }
 
 // Collect the Lines iterators we're going to be working on
-enum Readable<'a> {
-    Stdin(BufReader<StdinLock<'a>>),
-    File(BufReader<File>),
+enum Readable {
+    Stdin,
+    File(PathBuf),
 }
 
-impl Readable<'_> {
+impl Readable {
     fn lines(&mut self) -> Box<dyn Iterator<Item = std::io::Result<String>> + '_> {
         match self {
-            Readable::Stdin(r) => Box::new(r.lines().map(|line| line.map(|s| s.to_string()))),
-            Readable::File(r) => Box::new(r.lines().map(|line| line.map(|s| s.to_string()))),
+            Readable::Stdin => Box::new(
+                stdin()
+                    .lock()
+                    .lines()
+                    .map(|line| line.map(|s| s.to_string())),
+            ),
+            Readable::File(r) => Box::new({
+                BufReader::new(File::open(r.clone()).expect(
+                    format!("Failed to open file: {path}", path = r.to_string_lossy()).as_str(),
+                ))
+                .lines()
+                .map(|line| line.map(|s| s.to_string()))
+            }),
         }
     }
 }
 
 // Collect all inputs as 'Readable' iterators
 // This will handle multiple provided paths the cases for directories (recursive or not)
-fn collect_input(args: &Args) -> Vec<(String, Readable<'_>)> {
+fn collect_input(args: &Args) -> Vec<(String, Readable)> {
     let mut files = vec![];
 
     if args.paths.is_empty() {
-        files.push((
-            "stdin".to_string(),
-            Readable::Stdin(BufReader::new(std::io::stdin().lock())),
-        ));
+        files.push(("stdin".to_string(), Readable::Stdin));
     } else {
         let mut path_queue = args
             .paths
@@ -289,21 +297,7 @@ fn collect_input(args: &Args) -> Vec<(String, Readable<'_>)> {
                     }
                 }
             } else if path.is_file() {
-                // Directly open files
-                match File::open(&path) {
-                    Ok(f) => files.push((
-                        path.to_string_lossy().to_string(),
-                        Readable::File(BufReader::new(f)),
-                    )),
-                    Err(e) => {
-                        eprintln!(
-                            "Error opening file {path}: {error}",
-                            path = path.to_string_lossy(),
-                            error = e
-                        );
-                        std::process::exit(1);
-                    }
-                }
+                files.push((path.to_string_lossy().to_string(), Readable::File(path)))
             } else {
                 eprintln!(
                     "Error: {path} is not a file or directory",
