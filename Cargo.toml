@@ -1,6 +1,6 @@
 [package]
 name = "jp-grep"
-version = "0.2.3"
+version = "0.2.4"
 authors = ["JP Verkamp <me@jverkamp.com>"]
 edition = "2021"
 rust-version = "1.80"
