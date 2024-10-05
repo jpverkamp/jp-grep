@@ -28,7 +28,7 @@ impl CharType {
 }
 
 impl Regex {
-    pub fn matches(&self, input: &str) -> bool {
+    pub fn matches(&self, input: &str, flags: Flags) -> bool {
         // Convert to char vec with \1 first and \2 last for start and end of text
         let chars = input.chars().collect::<Vec<_>>();
 
@@ -41,7 +41,7 @@ impl Regex {
                 i == 0
             );
 
-            let mut flags = Flags::default();
+            let mut flags = flags;
             let mut groups = vec![];
             let mut named_groups = HashMap::new();
 
@@ -387,7 +387,8 @@ mod tests {
                         panic!("Error parsing regex: {:?}", e);
                     }
                 };
-                assert_eq!(regex.matches($input), $expected);
+
+                assert_eq!(regex.matches($input, Flags::default()), $expected);
             }
         };
     }

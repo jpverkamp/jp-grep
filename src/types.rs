@@ -52,7 +52,7 @@ pub(crate) enum AssertionType {
     NegativeLookbehind,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Flags {
     pub case_insensitive: bool,
     pub multiline: bool,

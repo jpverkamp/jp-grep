@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, io::BufRead};
 
 use clap::Parser;
-use types::Regex;
+use types::{Flags, Regex};
 
 mod matcher;
 mod parser;
@@ -26,6 +26,9 @@ struct Args {
     /// Extended regex mode (egrep); this option is ignored (always true)
     #[clap(short = 'E', long)]
     extended_regexp: bool,
+    /// Default to case insensitive match
+    #[clap(short = 'i', long)]
+    ignore_case: bool,
     /// Additional patterns, will return a line if any match
     #[clap(short='e', long="regexp", action=clap::ArgAction::Append, required=false)]
     additional_patterns: Vec<String>,
@@ -92,11 +95,17 @@ fn main() {
     // How many lines we've seen since the last match; used to determine if this match combines with the previous
     let mut context_before_countup = 0;
 
+    // Set up flags
+    let mut flags = Flags::default();
+    if args.ignore_case {
+        flags.case_insensitive = true;
+    }
+
     // Finally... loop over the input
     for line in stdin.lock().lines() {
         let input_line = line.unwrap();
 
-        if regexes.iter().any(|regex| regex.matches(&input_line)) {
+        if regexes.iter().any(|regex| regex.matches(&input_line, flags)) {
 
             // Case 1: A regex matched
             matches += 1;
