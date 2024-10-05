@@ -4,6 +4,7 @@ use crate::types::{CharType, Flags, Regex, RepeatType};
 
 impl CharType {
     pub(crate) fn matches(&self, input: char, flags: &mut Flags) -> bool {
+        // Split this so we don't have to create the vec and iter if we're not in case-insensitive mode
         if flags.case_insensitive {
             // Generate all possible upper and lowercase variants of the input and try them all
             // Yay unicode!
