@@ -40,6 +40,7 @@ pub(crate) enum RepeatType {
     OneOrMore,
     ZeroOrMore,
     ZeroOrOne,
+    Bound(Option<u32>, Option<u32>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

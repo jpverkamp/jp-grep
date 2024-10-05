@@ -7,6 +7,7 @@ pub(crate) enum ParserError {
     InvalidCharacter(char, &'static str),
     InvalidUnicodeCodePoint(u32),
     InvalidRange(char, char),
+    InvalidRepeatRange(u32, u32),
 }
 
 impl std::fmt::Display for ParserError {
@@ -21,6 +22,9 @@ impl std::fmt::Display for ParserError {
                 write!(f, "Invalid unicode code point: {}", code_point)
             }
             ParserError::InvalidRange(start, end) => {
+                write!(f, "Invalid range: {}-{}", start, end)
+            }
+            ParserError::InvalidRepeatRange(start, end) => {
                 write!(f, "Invalid range: {}-{}", start, end)
             }
         }
@@ -517,6 +521,58 @@ impl TryFrom<String> for Regex {
                         advance!(input, position + 1);
                         Regex::Repeated(RepeatType::ZeroOrOne, true, Box::new(node))
                     }
+                    (Some('{'), _) => {
+                        let mut min = None;
+                        let mut max = None;
+                        let mut reading_max = false;
+                        let mut char_count = 0;
+
+                        while let Some(&c) = input.iter().nth(char_count + 1) {
+                            match c {
+                                '}' => break,
+                                ',' => {
+                                    reading_max = true;
+                                }
+                                _ if c.is_digit(10) => {
+                                    let digit = c.to_digit(10).unwrap();
+                                    if reading_max {
+                                        max = Some((max.unwrap_or(0) * 10) + digit);
+                                    } else {
+                                        min = Some((min.unwrap_or(0) * 10) + digit);
+                                    }
+                                }
+                                _ => {
+                                    return Err(ParserError::InvalidCharacter(
+                                        c,
+                                        "digit or comma",
+                                    ))
+                                }
+                            }
+                            char_count += 1;
+                        }
+
+                        if min.is_none() && max.is_none() {
+                            return Err(ParserError::InvalidCharacter('{', "digit"));
+                        }
+
+                        match (min, max) {
+                            (Some(min), Some(max)) if min > max => {
+                                return Err(ParserError::InvalidRepeatRange(min, max));
+                            }
+                            _ => {}
+                        }
+
+                        // If we aren't reading_max, we never saw a comma so it's an exact n (min to min)
+                        let repeat_type = if min.is_some() && !reading_max {
+                            RepeatType::Bound(min, min)
+                        } else {
+                            RepeatType::Bound(min, max)
+                        };
+                        
+                        advance!(input, position + char_count + 2);
+
+                        Regex::Repeated(repeat_type, false, Box::new(node))
+                    }
                     _ => node,
                 };
 
@@ -824,6 +880,54 @@ mod tests {
                     Regex::Char(CharType::Single('o')),
                     Regex::Char(CharType::Single('o'))
                 ]))
+            )
+        ])
+    );
+
+    test_parse!(
+        repeat_exactly_n,
+        "a{3}",
+        Regex::Sequence(vec![
+            Regex::Repeated(
+                RepeatType::Bound(Some(3), Some(3)),
+                false,
+                Box::new(Regex::Char(CharType::Single('a')))
+            )
+        ])
+    );
+
+    test_parse!(
+        at_least_n,
+        "a{3,}",
+        Regex::Sequence(vec![
+            Regex::Repeated(
+                RepeatType::Bound(Some(3), None),
+                false,
+                Box::new(Regex::Char(CharType::Single('a')))
+            )
+        ])
+    );
+
+    test_parse!(
+        at_most,
+        "a{,3}",
+        Regex::Sequence(vec![
+            Regex::Repeated(
+                RepeatType::Bound(None, Some(3)),
+                false,
+                Box::new(Regex::Char(CharType::Single('a')))
+            )
+        ])
+    );
+
+    test_parse!(
+        between,
+        "a{3,5}",
+        Regex::Sequence(vec![
+            Regex::Repeated(
+                RepeatType::Bound(Some(3), Some(5)),
+                false,
+                Box::new(Regex::Char(CharType::Single('a')))
             )
         ])
     );

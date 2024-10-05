@@ -75,6 +75,11 @@ impl Regex {
             Regex::Repeated(RepeatType::OneOrMore, _, node) => node.allow_none(),
             Regex::Repeated(RepeatType::ZeroOrMore, _, _) => true,
             Regex::Repeated(RepeatType::ZeroOrOne, _, _) => true,
+            Regex::Repeated(RepeatType::Bound(min, _), _, node) => if min.is_some_and(|min| min == 0) {
+                true
+            } else {
+                node.allow_none()
+            },
             Regex::Backref(_) => true, // The capture group may be empty
             Regex::NamedBackref(_) => true,
             Regex::ModeChange(_, _, node) => node.allow_none(),
@@ -148,6 +153,41 @@ impl Regex {
             // NOTE: These should match the longest group they can and still work
             Regex::Repeated(mode, greedy, node) => {
                 match mode {
+                    RepeatType::Bound(min, max) => {
+                        // Calculate all possible matches at this level
+                        let mut results = vec![];
+                        let mut remaining = input;
+                        let mut matches = 0;
+
+                        loop {
+                            let recur = node.match_recur(remaining, at_start, flags, groups, named_groups);
+
+                            if recur.is_empty() {
+                                break;
+                            }
+
+                            matches += 1;
+
+                            for new_remaining in recur {
+                                if min.is_none_or(|min| matches >= min) && max.is_none_or(|max| matches <= max) {
+                                    results.push(new_remaining);
+                                }
+
+                                remaining = new_remaining;
+                            }
+
+                            if max.is_some_and(|max| matches >= max) {
+                                break;
+                            }
+                        }
+
+                        if *greedy {
+                            results.reverse();
+                        }
+
+                        return results;
+                    }
+
                     RepeatType::ZeroOrMore => {
                         // Return all possible matches at this level
                         // Base case: match nothing and return input as is
@@ -467,4 +507,19 @@ mod tests {
     test_regex!(case_insensitive_range2, r"(?i:[a-z])", "c", true);
     test_regex!(case_insensitive_range3, r"(?i:[A-Z])", "C", true);
     test_regex!(case_insensitive_range4, r"(?i:[A-Z])", "c", true);
+
+    test_regex!(exactly_n, r"a{3}", "aaa", true);
+    test_regex!(exactly_n2, r"a{3}", "aa", false);
+
+    test_regex!(at_least_n, r"a{2,}", "aaa", true);
+    test_regex!(at_least_n2, r"a{2,}", "aa", true);
+    test_regex!(at_least_n3, r"a{2,}", "a", false);
+
+    test_regex!(at_most_n, r"a{,2}", "aa", true);
+    test_regex!(at_most_n2, r"a{,2}", "a", true);
+    
+    test_regex!(between_n_m, r"a{2,3}", "aaa", true);
+    test_regex!(between_n_m2, r"a{2,3}", "aa", true);
+    test_regex!(between_n_m3, r"a{2,3}", "aaaa", true);
+    test_regex!(between_n_m4, r"a{2,3}", "a", false);
 }
