@@ -544,10 +544,7 @@ impl TryFrom<String> for Regex {
                                     }
                                 }
                                 _ => {
-                                    return Err(ParserError::InvalidCharacter(
-                                        c,
-                                        "digit or comma",
-                                    ))
+                                    return Err(ParserError::InvalidCharacter(c, "digit or comma"))
                                 }
                             }
                             char_count += 1;
@@ -570,7 +567,7 @@ impl TryFrom<String> for Regex {
                         } else {
                             RepeatType::Bound(min, max)
                         };
-                        
+
                         advance!(input, position + char_count + 2);
 
                         Regex::Repeated(repeat_type, false, Box::new(node))
@@ -889,48 +886,40 @@ mod tests {
     test_parse!(
         repeat_exactly_n,
         "a{3}",
-        Regex::Sequence(vec![
-            Regex::Repeated(
-                RepeatType::Bound(Some(3), Some(3)),
-                false,
-                Box::new(Regex::Char(CharType::Single('a')))
-            )
-        ])
+        Regex::Sequence(vec![Regex::Repeated(
+            RepeatType::Bound(Some(3), Some(3)),
+            false,
+            Box::new(Regex::Char(CharType::Single('a')))
+        )])
     );
 
     test_parse!(
         at_least_n,
         "a{3,}",
-        Regex::Sequence(vec![
-            Regex::Repeated(
-                RepeatType::Bound(Some(3), None),
-                false,
-                Box::new(Regex::Char(CharType::Single('a')))
-            )
-        ])
+        Regex::Sequence(vec![Regex::Repeated(
+            RepeatType::Bound(Some(3), None),
+            false,
+            Box::new(Regex::Char(CharType::Single('a')))
+        )])
     );
 
     test_parse!(
         at_most,
         "a{,3}",
-        Regex::Sequence(vec![
-            Regex::Repeated(
-                RepeatType::Bound(None, Some(3)),
-                false,
-                Box::new(Regex::Char(CharType::Single('a')))
-            )
-        ])
+        Regex::Sequence(vec![Regex::Repeated(
+            RepeatType::Bound(None, Some(3)),
+            false,
+            Box::new(Regex::Char(CharType::Single('a')))
+        )])
     );
 
     test_parse!(
         between,
         "a{3,5}",
-        Regex::Sequence(vec![
-            Regex::Repeated(
-                RepeatType::Bound(Some(3), Some(5)),
-                false,
-                Box::new(Regex::Char(CharType::Single('a')))
-            )
-        ])
+        Regex::Sequence(vec![Regex::Repeated(
+            RepeatType::Bound(Some(3), Some(5)),
+            false,
+            Box::new(Regex::Char(CharType::Single('a')))
+        )])
     );
 }

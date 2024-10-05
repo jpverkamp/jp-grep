@@ -75,11 +75,13 @@ impl Regex {
             Regex::Repeated(RepeatType::OneOrMore, _, node) => node.allow_none(),
             Regex::Repeated(RepeatType::ZeroOrMore, _, _) => true,
             Regex::Repeated(RepeatType::ZeroOrOne, _, _) => true,
-            Regex::Repeated(RepeatType::Bound(min, _), _, node) => if min.is_some_and(|min| min == 0) {
-                true
-            } else {
-                node.allow_none()
-            },
+            Regex::Repeated(RepeatType::Bound(min, _), _, node) => {
+                if min.is_some_and(|min| min == 0) {
+                    true
+                } else {
+                    node.allow_none()
+                }
+            }
             Regex::Backref(_) => true, // The capture group may be empty
             Regex::NamedBackref(_) => true,
             Regex::ModeChange(_, _, node) => node.allow_none(),
@@ -160,7 +162,8 @@ impl Regex {
                         let mut matches = 0;
 
                         loop {
-                            let recur = node.match_recur(remaining, at_start, flags, groups, named_groups);
+                            let recur =
+                                node.match_recur(remaining, at_start, flags, groups, named_groups);
 
                             if recur.is_empty() {
                                 break;
@@ -169,7 +172,9 @@ impl Regex {
                             matches += 1;
 
                             for new_remaining in recur {
-                                if min.is_none_or(|min| matches >= min) && max.is_none_or(|max| matches <= max) {
+                                if min.is_none_or(|min| matches >= min)
+                                    && max.is_none_or(|max| matches <= max)
+                                {
                                     results.push(new_remaining);
                                 }
 
@@ -517,14 +522,29 @@ mod tests {
 
     test_regex!(at_most_n, r"a{,2}", "aa", true);
     test_regex!(at_most_n2, r"a{,2}", "a", true);
-    
+
     test_regex!(between_n_m, r"a{2,3}", "aaa", true);
     test_regex!(between_n_m2, r"a{2,3}", "aa", true);
     test_regex!(between_n_m3, r"a{2,3}", "aaaa", true);
     test_regex!(between_n_m4, r"a{2,3}", "a", false);
 
     test_regex!(match_hex_color, r"#[a-f0-9]{3}|#[a-f0-9]{6}", "#def", true);
-    test_regex!(match_hex_color_not, r"^(?:#[a-f0-9]{3}|#[a-f0-9]{6})$", "#deff", false);
-    test_regex!(match_hex_color_long, r"#[a-f0-9]{3}|#[a-f0-9]{6}", "#deffed", true);
-    test_regex!(match_hex_color_long_not, r"^(?:#[a-f0-9]{3}|#[a-f0-9]{6})$", "#deffed1", false);
+    test_regex!(
+        match_hex_color_not,
+        r"^(?:#[a-f0-9]{3}|#[a-f0-9]{6})$",
+        "#deff",
+        false
+    );
+    test_regex!(
+        match_hex_color_long,
+        r"#[a-f0-9]{3}|#[a-f0-9]{6}",
+        "#deffed",
+        true
+    );
+    test_regex!(
+        match_hex_color_long_not,
+        r"^(?:#[a-f0-9]{3}|#[a-f0-9]{6})$",
+        "#deffed1",
+        false
+    );
 }
