@@ -20,7 +20,10 @@ struct Args {
     /// Lines to print both before and after
     #[clap(short='C', long)]
     context: Option<usize>,
-    /// If we're operating in extended mode, this is ignored (always treated as true)
+    /// Only print the matching count
+    #[clap(short='c', long)]
+    count: bool,
+    /// Extended regex mode (egrep); this option is ignored (always true)
     #[clap(short = 'E', long)]
     extended_regexp: bool,
     /// Additional patterns, will return a line if any match
@@ -98,6 +101,12 @@ fn main() {
             // Case 1: A regex matched
             matches += 1;
 
+            // If we're in counting mode, do nothing of the rest
+            // It will still buffer input, but never print it so :shrug: 
+            if args.count {
+                continue;
+            }
+
             // We have finished printing the previous match
             if context_after_countdown == 0 {
                 // And there was at least one line in between (and we're printing context)
@@ -136,6 +145,11 @@ fn main() {
             }
 
         }
+    }
+
+    // Hopefully we didn't print anything else in this mode :smile: 
+    if args.count {
+        println!("{}", matches);
     }
 
     std::process::exit(if matches > 0 { 0 } else { 1 });
