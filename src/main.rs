@@ -33,6 +33,8 @@ fn main() {
         }
     };
 
+    log::debug!("Parsed regex: {:#?}", regex);
+
     let stdin = std::io::stdin();
     let mut matches = 0;
 

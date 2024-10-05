@@ -1,6 +1,30 @@
 use std::collections::HashMap;
 
-use crate::types::{CharType, Regex, RepeatType};
+use crate::types::{CharType, Flags, Regex, RepeatType};
+
+impl CharType {
+    pub(crate) fn matches(&self, input: char, flags: &mut Flags) -> bool {
+        if flags.case_insensitive {
+            // Generate all possible upper and lowercase variants of the input and try them all
+            // Yay unicode!
+            let mut inputs = vec![input];
+            inputs.extend(input.to_uppercase());
+            inputs.extend(input.to_lowercase());
+
+            match self {
+                CharType::Any => input != '\n' || flags.dot_matches_newline,
+                CharType::Single(c) => inputs.iter().any(|input| input == c),
+                CharType::Range(lo, hi) => inputs.iter().any(|input| input >= lo && input <= hi),
+            }
+        } else {
+            match self {
+                CharType::Any => input != '\n' || flags.dot_matches_newline,
+                CharType::Single(c) => input == *c,
+                CharType::Range(lo, hi) => input >= *lo && input <= *hi,
+            }
+        }
+    }
+}
 
 impl Regex {
     pub fn matches(&self, input: &str) -> bool {
@@ -16,10 +40,17 @@ impl Regex {
                 i == 0
             );
 
+            let mut flags = Flags::default();
             let mut groups = vec![];
             let mut named_groups = HashMap::new();
 
-            let results = self.match_recur(&chars[i..], i == 0, &mut groups, &mut named_groups);
+            let results = self.match_recur(
+                &chars[i..],
+                i == 0,
+                &mut flags,
+                &mut groups,
+                &mut named_groups,
+            );
 
             if !results.is_empty() {
                 return true;
@@ -54,11 +85,12 @@ impl Regex {
         &self,
         input: &'a [char],
         at_start: bool,
+        flags: &mut Flags,
         groups: &mut Vec<Option<&'a [char]>>,
         named_groups: &mut HashMap<String, &'a [char]>,
     ) -> Vec<&'a [char]> {
         log::debug!(
-            "match_recur({self:?}, {}, {at_start})",
+            "match_recur({self:?}, {}, {at_start}, {flags:?}, {groups:?}, {named_groups:?})",
             input.iter().collect::<String>()
         );
 
@@ -71,32 +103,21 @@ impl Regex {
         }
 
         match self {
-            // Hit the any key
-            Regex::Char(CharType::Any) => {
-                return vec![&input[1..]];
-            }
-
-            // Single character matches
-            Regex::Char(CharType::Single(c)) => {
-                if input[0] == *c {
-                    return vec![&input[1..]];
+            // Single character matches (any, specific, or range)
+            // The ranges here are actually character classes (a la \d)
+            Regex::Char(char_type) => {
+                if char_type.matches(input[0], flags) {
+                    vec![&input[1..]]
+                } else {
+                    vec![]
                 }
-                return vec![];
-            }
-            Regex::Char(CharType::Range(start, end)) => {
-                if input[0] >= *start && input[0] <= *end {
-                    return vec![&input[1..]];
-                }
-                return vec![];
             }
 
             // Character groups, match any of the characters (or none if negated)
             Regex::CharacterGroup(chars, negated) => {
-                let matched = chars.iter().any(|c| match c {
-                    CharType::Single(c) => input[0] == *c,
-                    CharType::Range(start, end) => input[0] >= *start && input[0] <= *end,
-                    CharType::Any => true,
-                });
+                let matched = chars
+                    .iter()
+                    .any(|char_type| char_type.matches(input[0], flags));
 
                 if negated ^ matched {
                     return vec![&input[1..]];
@@ -106,6 +127,7 @@ impl Regex {
             }
 
             // Anchors
+            // TODO: Deal with flags.multiline, if false ^...$ should match lines
             Regex::Start => {
                 if at_start {
                     return vec![input];
@@ -132,7 +154,8 @@ impl Regex {
                         let mut remaining = input;
 
                         loop {
-                            let recur = node.match_recur(remaining, at_start, groups, named_groups);
+                            let recur =
+                                node.match_recur(remaining, at_start, flags, groups, named_groups);
                             if recur.is_empty() {
                                 break;
                             }
@@ -156,7 +179,8 @@ impl Regex {
                         let mut remaining = input;
 
                         loop {
-                            let recur = node.match_recur(remaining, at_start, groups, named_groups);
+                            let recur =
+                                node.match_recur(remaining, at_start, flags, groups, named_groups);
                             if recur.is_empty() {
                                 break;
                             }
@@ -178,7 +202,8 @@ impl Regex {
                         let mut results = vec![input];
 
                         // If one match
-                        let mut recur = node.match_recur(input, at_start, groups, named_groups);
+                        let mut recur =
+                            node.match_recur(input, at_start, flags, groups, named_groups);
                         results.append(&mut recur);
 
                         if *greedy {
@@ -201,7 +226,7 @@ impl Regex {
                     remainings = remainings
                         .into_iter()
                         .flat_map(|input| {
-                            node.match_recur(input, seq_at_start, groups, named_groups)
+                            node.match_recur(input, seq_at_start, flags, groups, named_groups)
                         })
                         .collect();
                     seq_at_start = false;
@@ -216,7 +241,7 @@ impl Regex {
                 let mut results = vec![];
 
                 for node in seq {
-                    let mut recur = node.match_recur(input, at_start, groups, named_groups);
+                    let mut recur = node.match_recur(input, at_start, flags, groups, named_groups);
                     if !recur.is_empty() {
                         results.append(&mut recur);
                     }
@@ -231,7 +256,7 @@ impl Regex {
                 let index = groups.len();
                 groups.push(None);
 
-                let recur = node.match_recur(input, at_start, groups, named_groups);
+                let recur = node.match_recur(input, at_start, flags, groups, named_groups);
                 if recur.is_empty() {
                     groups.remove(index);
                     return vec![];
@@ -279,7 +304,20 @@ impl Regex {
 
             // Change the current flag
             Regex::ModeChange(to_enable, to_disable, node) => {
-                unimplemented!("ModeChange not implemented (yet!)");
+                let old_flags = flags.clone();
+
+                flags.case_insensitive |= to_enable.case_insensitive;
+                flags.multiline |= to_enable.multiline;
+                flags.dot_matches_newline |= to_enable.dot_matches_newline;
+
+                flags.case_insensitive &= !to_disable.case_insensitive;
+                flags.multiline &= !to_disable.multiline;
+                flags.dot_matches_newline &= !to_disable.dot_matches_newline;
+
+                let recur = node.match_recur(input, at_start, flags, groups, named_groups);
+                *flags = old_flags;
+
+                return recur;
             }
 
             // This should have been expanded by the time we get here
@@ -417,4 +455,15 @@ mod tests {
     );
 
     test_regex!(named_backref, r"(?<name>abc)\k<name>", "abcabc", true);
+
+    test_regex!(not_dot_matches_any_flag, r"abc.def", "abc\ndef", false);
+    test_regex!(dot_matches_any_flag, r"(?s:abc.def)", "abc\ndef", true);
+
+    test_regex!(case_insensitive_flag, r"(?i:abc)", "ABC", true);
+    test_regex!(case_insensitive_flag2, r"(?i:abc)", "aBc", true);
+
+    test_regex!(case_insensitive_range, r"(?i:[a-z])", "C", true);
+    test_regex!(case_insensitive_range2, r"(?i:[a-z])", "c", true);
+    test_regex!(case_insensitive_range3, r"(?i:[A-Z])", "C", true);
+    test_regex!(case_insensitive_range4, r"(?i:[A-Z])", "c", true);
 }
