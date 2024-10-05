@@ -1,7 +1,8 @@
 use std::{
     collections::VecDeque,
-    fs::File,
+    fs::{self, File},
     io::{BufRead, BufReader, StdinLock},
+    path::PathBuf,
 };
 
 use clap::Parser;
@@ -45,6 +46,9 @@ struct Args {
     /// Print line numbers before matches and context
     #[clap(short = 'n', long)]
     line_number: bool,
+    /// Recursively add any directories (-R also works)
+    #[clap(short = 'r', short_alias = 'R', long)]
+    recursive: bool,
     /// Invert the match; only print lines that don't match any pattern
     #[clap(short = 'v', long)]
     invert_match: bool,
@@ -125,7 +129,13 @@ fn main() {
     // Finally... loop over the input
     for (name, mut readable) in inputs {
         for (line_number, line) in readable.lines().enumerate() {
-            let input_line = line.unwrap();
+            let input_line = match line {
+                Ok(l) => l,
+                Err(e) => {
+                    eprintln!("Error reading line: {error}", error = e);
+                    std::process::exit(1);
+                }
+            };
 
             // Check if any of the regexes match; inverting matches if necessary
             let is_match = if args.invert_match {
@@ -164,7 +174,7 @@ fn main() {
                             line_number - context_buffer.len() + offset + 1,
                             &name,
                             args.line_number,
-                            print_filenames
+                            print_filenames,
                         );
                     }
                     context_buffer.clear();
@@ -214,7 +224,6 @@ fn main() {
     std::process::exit(if matches > 0 { 0 } else { 1 });
 }
 
-
 // Collect the Lines iterators we're going to be working on
 enum Readable<'a> {
     Stdin(BufReader<StdinLock<'a>>),
@@ -230,6 +239,8 @@ impl Readable<'_> {
     }
 }
 
+// Collect all inputs as 'Readable' iterators
+// This will handle multiple provided paths the cases for directories (recursive or not)
 fn collect_input(args: &Args) -> Vec<(String, Readable<'_>)> {
     let mut files = vec![];
 
@@ -239,13 +250,66 @@ fn collect_input(args: &Args) -> Vec<(String, Readable<'_>)> {
             Readable::Stdin(BufReader::new(std::io::stdin().lock())),
         ));
     } else {
-        for path in args.paths.iter() {
-            match File::open(&path) {
-                Ok(f) => files.push((path.clone(), Readable::File(BufReader::new(f)))),
-                Err(e) => {
-                    eprintln!("Error opening file {path}: {error}", path = path, error = e);
+        let mut path_queue = args
+            .paths
+            .iter()
+            .map(|p| PathBuf::from(p))
+            .collect::<VecDeque<_>>();
+
+        while let Some(path) = path_queue.pop_front() {
+            if path.is_dir() {
+                if !args.recursive {
+                    eprintln!(
+                        "Error: {path} is a directory, but -r/--recursive was not set",
+                        path = path.to_string_lossy()
+                    );
                     std::process::exit(1);
                 }
+
+                // Handle recursively adding directories
+                match fs::read_dir(path.clone()) {
+                    Ok(entries) => {
+                        for entry in entries {
+                            match entry {
+                                Ok(e) => path_queue.push_back(e.path()),
+                                Err(e) => {
+                                    eprintln!("Error reading directory entry: {error}", error = e);
+                                    std::process::exit(1);
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "Error reading directory {path}: {error}",
+                            path = path.to_string_lossy(),
+                            error = e
+                        );
+                        std::process::exit(1);
+                    }
+                }
+            } else if path.is_file() {
+                // Directly open files
+                match File::open(&path) {
+                    Ok(f) => files.push((
+                        path.to_string_lossy().to_string(),
+                        Readable::File(BufReader::new(f)),
+                    )),
+                    Err(e) => {
+                        eprintln!(
+                            "Error opening file {path}: {error}",
+                            path = path.to_string_lossy(),
+                            error = e
+                        );
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                eprintln!(
+                    "Error: {path} is not a file or directory",
+                    path = path.to_string_lossy()
+                );
+                std::process::exit(1);
             }
         }
     }
@@ -253,10 +317,21 @@ fn collect_input(args: &Args) -> Vec<(String, Readable<'_>)> {
     files
 }
 
-fn print_line(content: &str, line_number: usize, path: &str, print_line_numbers: bool, print_filename: bool) {
+fn print_line(
+    content: &str,
+    line_number: usize,
+    path: &str,
+    print_line_numbers: bool,
+    print_filename: bool,
+) {
     if print_line_numbers {
         if print_filename {
-            println!("{path}:{no}:{content}", path = path, no = line_number, content = content);
+            println!(
+                "{path}:{no}:{content}",
+                path = path,
+                no = line_number,
+                content = content
+            );
         } else {
             println!("{no}:{content}", no = line_number, content = content);
         }
