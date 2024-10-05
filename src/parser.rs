@@ -299,6 +299,7 @@ impl TryFrom<String> for Regex {
                                 }
                                 // Escaped characters, always treat as literal
                                 // TODO: [\b] is a backspace character apparently
+                                // TODO: \cX, \hXX, \uXXXX should be supported here
                                 '\\' => {
                                     let c = match input.first() {
                                         Some(&c) => c,

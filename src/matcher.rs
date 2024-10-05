@@ -522,4 +522,9 @@ mod tests {
     test_regex!(between_n_m2, r"a{2,3}", "aa", true);
     test_regex!(between_n_m3, r"a{2,3}", "aaaa", true);
     test_regex!(between_n_m4, r"a{2,3}", "a", false);
+
+    test_regex!(match_hex_color, r"#[a-f0-9]{3}|#[a-f0-9]{6}", "#def", true);
+    test_regex!(match_hex_color_not, r"^(?:#[a-f0-9]{3}|#[a-f0-9]{6})$", "#deff", false);
+    test_regex!(match_hex_color_long, r"#[a-f0-9]{3}|#[a-f0-9]{6}", "#deffed", true);
+    test_regex!(match_hex_color_long_not, r"^(?:#[a-f0-9]{3}|#[a-f0-9]{6})$", "#deffed1", false);
 }
