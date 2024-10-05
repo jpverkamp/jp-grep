@@ -29,6 +29,9 @@ struct Args {
     /// Default to case insensitive match
     #[clap(short = 'i', long)]
     ignore_case: bool,
+    /// Print line numbers before matches and context
+    #[clap(short = 'n', long)]
+    line_number: bool,
     /// Additional patterns, will return a line if any match
     #[clap(short='e', long="regexp", action=clap::ArgAction::Append, required=false)]
     additional_patterns: Vec<String>,
@@ -102,7 +105,7 @@ fn main() {
     }
 
     // Finally... loop over the input
-    for line in stdin.lock().lines() {
+    for (line_number, line) in stdin.lock().lines().enumerate() {
         let input_line = line.unwrap();
 
         if regexes.iter().any(|regex| regex.matches(&input_line, flags)) {
@@ -124,14 +127,24 @@ fn main() {
                 }
 
                 // Print out and clear the context buffer
-                for line in context_buffer.iter() {
-                    println!("{}", line);
+                for (offset, previous_line) in context_buffer.iter().enumerate() {
+                    if args.line_number {
+                        println!("{no}-{previous_line}", no = line_number - context_buffer.len() + offset + 1);
+                    } else {
+                        println!("{previous_line}");
+                    }
+                    
                 }
                 context_buffer.clear();
             }
 
             // Then print out this line and print the next context_after lines no matter what
-            println!("{}", input_line);
+            if args.line_number {
+                println!("{no}:{input_line}", no = line_number + 1);
+            } else {
+                println!("{input_line}");
+            }
+            
             context_after_countdown = context_after;
             context_before_countup = 0;
             had_previous_match = true;
@@ -139,7 +152,12 @@ fn main() {
         } else if context_after_countdown > 0 {
 
             // Case 2: No match, but we're counting down 'after' context
-            println!("{}", input_line);
+            if args.line_number {
+                println!("{no}-{input_line}", no = line_number + 1);
+            } else {
+                println!("{input_line}");
+            }
+            
             context_after_countdown -= 1;
             context_before_countup = 0;
 
