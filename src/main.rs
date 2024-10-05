@@ -26,15 +26,18 @@ struct Args {
     /// Extended regex mode (egrep); this option is ignored (always true)
     #[clap(short = 'E', long)]
     extended_regexp: bool,
+    /// Additional patterns, will return a line if any match
+    #[clap(short='e', long="regexp", action=clap::ArgAction::Append, required=false)]
+    additional_patterns: Vec<String>,
     /// Default to case insensitive match
     #[clap(short = 'i', long)]
     ignore_case: bool,
     /// Print line numbers before matches and context
     #[clap(short = 'n', long)]
     line_number: bool,
-    /// Additional patterns, will return a line if any match
-    #[clap(short='e', long="regexp", action=clap::ArgAction::Append, required=false)]
-    additional_patterns: Vec<String>,
+    /// Invert the match; only print lines that don't match any pattern
+    #[clap(short = 'v', long)]
+    invert_match: bool,
     /// The expression to parse
     pattern: Option<String>,
 }
@@ -108,7 +111,13 @@ fn main() {
     for (line_number, line) in stdin.lock().lines().enumerate() {
         let input_line = line.unwrap();
 
-        if regexes.iter().any(|regex| regex.matches(&input_line, flags)) {
+        // Check if any of the regexes match; inverting matches if necessary
+        let is_match = if args.invert_match {
+            regexes.iter().all(|regex| !regex.matches(&input_line, flags))
+        } else {
+            regexes.iter().any(|regex| regex.matches(&input_line, flags))
+        };
+        if is_match {
 
             // Case 1: A regex matched
             matches += 1;
