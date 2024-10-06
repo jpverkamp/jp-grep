@@ -52,9 +52,9 @@ struct Args {
     /// Invert the match; only print lines that don't match any pattern
     #[clap(short = 'v', long)]
     invert_match: bool,
-    /// The expression to parse
+    /// The regular expression to evaluate; may also be specified with -e
     pattern: Option<String>,
-    /// Paths to search for matches
+    /// Paths to search for matches; if none are provided read from stdin
     paths: Vec<String>,
 }
 
