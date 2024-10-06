@@ -33,7 +33,8 @@ impl Regex {
         let chars = input.chars().collect::<Vec<_>>();
 
         // Pattern can apply at any starting point
-        for i in 0..chars.len() {
+        // .max(1) means that we'll run at least one match, even if the input is empty
+        for i in 0..chars.len().max(1) {
             log::debug!(
                 "matches({:?}) against {:?}, start={}",
                 chars[i..].iter().collect::<String>(),
@@ -102,14 +103,12 @@ impl Regex {
             input.iter().collect::<String>()
         );
 
-        if input.len() == 0 {
-            if self.allow_none() {
-                return vec![input];
-            } else {
-                return vec![];
-            }
+        // Only regexes that can possibly match against an empty string should be allowed to continue
+        // This has to fall through to test each case for example r'a^$' versus 'a' should not match but was
+        if input.len() == 0 && !self.allow_none() {
+            return vec![];
         }
-
+    
         match self {
             // Single character matches (any, specific, or range)
             // The ranges here are actually character classes (a la \d)
@@ -450,6 +449,11 @@ mod tests {
     test_regex!(anchor_end, "a$", "a", true);
     test_regex!(anchor_end2, "a$", "ba", true);
     test_regex!(anchor_end3, "a$", "ab", false);
+
+    test_regex!(empty_string, "^$", "", true);
+    test_regex!(empty_string_but_not, "^$", "a", false);
+    test_regex!(empty_string_invalid, "a^$", "", false);
+    test_regex!(empty_string_invalid_2, "a^$", "a", false);
 
     test_regex!(choice_only_negate, "[^anb]", "banana", false);
 
